@@ -11,6 +11,7 @@ O objetivo é responder perguntas como:
 - Quais heróis são mais escolhidos em partidas de alto nível?
 - Quais heróis apresentam as maiores taxas de vitória dentro de uma amostra relevante?
 - Como popularidade e desempenho mudam ao longo do tempo?
+- Quais heróis e itens apresentam os melhores resultados para um contexto informado pelo jogador?
 - Quais resultados podem ser explicados pelo tamanho ou pela composição da amostra?
 - Skin gera Skill?
 
@@ -32,13 +33,15 @@ A primeira versão deve entregar um fluxo completo, da coleta à visualização,
 - tamanho da amostra de cada indicador;
 - variação dos indicadores ao longo do tempo;
 - filtros por período e, quando os dados permitirem, faixa de habilidade;
+- recomendação de heróis baseada em posição, aliados, adversários e recorte do meta;
+- recomendação de itens baseada no herói, no contexto da partida e no desempenho observado;
 - dashboard responsivo consumindo uma API interna.
 
 Para o primeiro corte, a janela sugerida é de sete dias, com atualização diária. Tanto a janela quanto o recorte de habilidade devem ser configuráveis, pois a disponibilidade exata dos filtros depende da validação dos endpoints da OpenDota.
 
 Ficam fora do MVP:
 
-- recomendação personalizada de heróis ou itens;
+- personalização baseada no histórico de uma conta ou no perfil persistente do jogador;
 - previsão do resultado de partidas;
 - análise de partidas em tempo real;
 - autenticação de usuários;
@@ -131,17 +134,21 @@ DuckDB é adequado enquanto houver um único processo escritor e a carga for pre
 
 ## Modelo de dados inicial
 
-O modelo processado deve começar com três conjuntos principais:
+O modelo processado deve começar com cinco conjuntos principais:
 
 - **matches:** identifica a partida, o horário, a duração, o vencedor e os atributos do recorte disponíveis na fonte.
 - **match_players:** relaciona partida, herói, equipe e resultado de cada participante, sem depender de identificação pessoal do jogador.
+- **player_items:** relaciona a participação aos itens observados e, quando disponível, ao momento de aquisição.
 - **hero_daily_stats:** agrega escolhas, vitórias, derrotas, taxa de escolha, taxa de vitória e tamanho da amostra por herói e dia.
+- **recommendation_stats:** agrega desempenho e tamanho da amostra para combinações de herói, item e contexto utilizadas pelo recomendador.
 
 O pipeline deve registrar também informações operacionais, como horário da coleta, intervalo solicitado, quantidade de registros recebidos e eventuais falhas.
 
 ## Qualidade estatística
 
 Toda métrica exposta deve informar o tamanho da amostra e os filtros aplicados. Rankings devem exigir uma amostra mínima configurável para reduzir distorções causadas por heróis pouco escolhidos.
+
+As recomendações devem ser explicáveis: cada sugestão precisa indicar quais filtros e estatísticas a sustentam. Correlações com vitórias não devem ser apresentadas como causalidade. Recomendações de itens também devem considerar vieses como duração da partida, ordem de compra e itens que aparecem com maior frequência apenas em partidas já favoráveis.
 
 As transformações devem ser reproduzíveis e cobrir, no mínimo:
 
@@ -161,6 +168,8 @@ GET /health
 GET /api/v1/meta/heroes
 GET /api/v1/meta/heroes/{hero_id}
 GET /api/v1/meta/heroes/{hero_id}/trend
+GET /api/v1/recommendations/heroes
+GET /api/v1/recommendations/items
 ```
 
 As respostas de estatísticas devem incluir o período consultado, a data da última atualização e o tamanho da amostra, além dos valores calculados.
@@ -226,12 +235,13 @@ Coletas devem produzir logs estruturados com duração, volume, tentativas, falh
 2. Inicializar o backend com `uv`, configuração tipada e testes.
 3. Implementar uma coleta pequena, idempotente e persistida em Parquet.
 4. Criar o modelo processado e o catálogo DuckDB.
-5. Calcular as primeiras métricas de heróis com amostra mínima.
-6. Publicar os resultados por meio da FastAPI.
-7. Construir o dashboard em Next.js.
-8. Automatizar atualizações e acompanhar a qualidade dos dados.
+5. Calcular as primeiras métricas de heróis e itens com amostra mínima.
+6. Implementar recomendações contextuais e explicáveis.
+7. Publicar os resultados por meio da FastAPI.
+8. Construir o dashboard em Next.js.
+9. Automatizar atualizações e acompanhar a qualidade dos dados.
 
-O primeiro marco funcional é coletar uma amostra real, persistir os dados e responder a `GET /api/v1/meta/heroes` com escolhas, vitórias, taxas, período e tamanho da amostra por herói.
+O primeiro marco funcional é coletar uma amostra real, persistir os dados e responder a `GET /api/v1/meta/heroes` com escolhas, vitórias, taxas, período e tamanho da amostra por herói. O marco seguinte adiciona recomendações de heróis e itens sustentadas por essas estatísticas.
 
 ## Licença
 
