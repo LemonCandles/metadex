@@ -18,7 +18,7 @@ Este projeto serve como um laboratório prático para unir três pilares da tecn
 O projeto utiliza uma arquitetura desacoplada (Monorepo), separando o motor de análise de dados da interface visual.
 
 **Backend & Data Science (Motor de Dados)**
-*   **Python 3:** Linguagem principal para os scripts e servidor.
+*   **Python 3 + uv:** Linguagem principal e gerenciamento ultrarrápido de pacotes/ambientes com `uv`.
 *   **Pandas:** Exploração de dados, cruzamento de variáveis e cálculos estatísticos.
 *   **FastAPI:** Criação da API interna de forma assíncrona e rápida.
 *   **HTTPX:** Biblioteca moderna para requisições HTTP assíncronas (coleta de dados).
@@ -41,7 +41,8 @@ metadex/
 │   │   ├── servicos/         # Integração com a OpenDota API
 │   │   └── mineracao/        # Lógica de negócio e cálculos do Pandas
 │   ├── notebooks/            # Jupyter Notebooks para testes e exploração de dados
-│   ├── requirements.txt      # Dependências do Python
+│   ├── pyproject.toml        # Configuração de dependências gerenciada pelo uv
+│   ├── uv.lock               # Arquivo de trava de versões (Lockfile) do uv
 │   └── .env.example          # Variáveis de ambiente de exemplo
 │
 ├── frontend/                 # Interface de Usuário
