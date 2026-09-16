@@ -12,6 +12,7 @@ O objetivo é responder perguntas como:
 - Quais heróis apresentam as maiores taxas de vitória dentro de uma amostra relevante?
 - Como popularidade e desempenho mudam ao longo do tempo?
 - Quais resultados podem ser explicados pelo tamanho ou pela composição da amostra?
+- Skin gera Skill?
 
 O projeto não pretende determinar uma estratégia universalmente correta. Seus resultados representam correlações observadas no recorte analisado e devem sempre ser apresentados junto ao período, aos filtros e ao tamanho da amostra.
 
