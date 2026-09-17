@@ -1,1 +1,0 @@
-"""Rotas e contratos HTTP."""

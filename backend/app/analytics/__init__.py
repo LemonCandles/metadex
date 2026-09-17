@@ -1,1 +1,0 @@
-"""Métricas e agregações estatísticas."""

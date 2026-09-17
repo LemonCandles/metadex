@@ -1,1 +1,0 @@
-"""Configuração e utilitários compartilhados."""
