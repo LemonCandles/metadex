@@ -19,7 +19,7 @@ O projeto não pretende determinar uma estratégia universalmente correta. Seus 
 
 ## Estado do projeto
 
-O projeto está em fase inicial de planejamento. Este documento define a arquitetura e o escopo pretendidos; os diretórios e serviços descritos abaixo ainda serão implementados.
+O projeto está em fase inicial de implementação. A estrutura do monorepo, os ambientes e as dependências do backend e do frontend estão configurados. As funcionalidades descritas neste documento ainda serão implementadas passo a passo.
 
 ## Escopo do MVP
 
@@ -174,7 +174,7 @@ GET /api/v1/recommendations/items
 
 As respostas de estatísticas devem incluir o período consultado, a data da última atualização e o tamanho da amostra, além dos valores calculados.
 
-## Estrutura planejada do repositório
+## Estrutura inicial do repositório
 
 ```text
 metadex/
@@ -206,7 +206,48 @@ metadex/
 
 Os nomes de diretório do código seguem convenções em inglês para manter consistência com os ecossistemas Python e TypeScript. A documentação e a interface podem permanecer em português.
 
-## Configuração prevista
+## Desenvolvimento local
+
+### Backend
+
+O backend requer Python 3.12 a 3.14 e `uv`:
+
+```bash
+cd backend
+uv sync
+cp .env.example .env
+uv run uvicorn app.main:app --reload
+```
+
+A API ficará disponível em `http://localhost:8000` e a documentação interativa em `http://localhost:8000/docs`.
+
+Para executar as verificações:
+
+```bash
+uv run ruff check .
+```
+
+### Frontend
+
+O frontend requer Node.js 20.9 ou superior e `pnpm`:
+
+```bash
+cd frontend
+pnpm install
+cp .env.example .env.local
+pnpm dev
+```
+
+A aplicação ficará disponível em `http://localhost:3000`.
+
+Para executar as verificações:
+
+```bash
+pnpm lint
+pnpm build
+```
+
+## Configuração
 
 As configurações devem ser recebidas por variáveis de ambiente e documentadas em `backend/.env.example`. Nenhum segredo deve ser versionado.
 

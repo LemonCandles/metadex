@@ -1,1 +1,48 @@
-backend/data/
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Editors and operating systems
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+.venv/
+
+# Local data artifacts
+backend/data/*
+!backend/data/raw/
+backend/data/raw/*
+!backend/data/raw/.gitkeep
+!backend/data/processed/
+backend/data/processed/*
+!backend/data/processed/.gitkeep
+
+# Node.js / Next.js
+node_modules/
+.next/
+out/
+coverage/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Local tooling
+.cache/
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
