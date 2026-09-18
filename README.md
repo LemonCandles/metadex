@@ -50,10 +50,10 @@ Ficam fora do MVP:
 
 ## Arquitetura
 
-O Metadex será organizado como um monorepo com dois componentes principais:
+O Metadex é organizado como um monorepo com dois componentes principais:
 
-- **Backend:** coleta, persistência, transformação, cálculo das métricas e API HTTP.
-- **Frontend:** navegação, filtros, tabelas e visualizações interativas.
+- **Backend (`backend/`):** coleta, persistência, transformação, cálculo das métricas e API HTTP. A aplicação FastAPI é iniciada por `backend/app/main.py`.
+- **Frontend (`frontend/`):** navegação, filtros, tabelas e visualizações interativas. A aplicação Next.js usa o App Router em `frontend/src/app/`.
 
 ```text
 OpenDota API
@@ -77,7 +77,27 @@ FastAPI
 Next.js
 ```
 
-O coletor é o único responsável por escrever na camada de dados. A API consulta resultados processados e não dispara coletas durante uma requisição do usuário. Essa separação evita que latência ou indisponibilidade da OpenDota comprometam o dashboard.
+### Responsabilidades por camada
+
+- `backend/app/collectors/`: acessa fontes externas e inicia a entrada de dados.
+- `backend/app/storage/`: grava e lê Parquet e DuckDB; no MVP, somente um processo pode escrever.
+- `backend/app/analytics/`: transforma dados preservados e calcula resultados explicáveis.
+- `backend/app/api/`: publica contratos HTTP e apenas lê resultados já processados.
+- `backend/app/core/`: concentra configuração e utilitários compartilhados.
+- `frontend/src/app/`: contém páginas, layouts e rotas da interface.
+- `frontend/src/components/`: concentra componentes visuais reutilizáveis.
+- `frontend/src/lib/`: concentra o cliente HTTP e utilitários do navegador.
+- `frontend/src/types/`: mantém tipos TypeScript compartilhados pela interface.
+
+O coletor é o único responsável por escrever na camada de dados. Os dados brutos são imutáveis: correções geram um novo processamento, nunca uma edição silenciosa da origem. A API consulta resultados processados e não dispara coletas durante uma requisição do usuário. Essa separação evita que latência ou indisponibilidade da OpenDota comprometam o dashboard.
+
+### Decisões fixas do MVP
+
+1. Há apenas um processo escritor para Parquet e DuckDB.
+2. A camada bruta preserva a resposta de origem e não é alterada após a gravação.
+3. Coleta e requisições HTTP da API têm ciclos de execução independentes.
+4. Indicadores informam período, filtros e tamanho da amostra.
+5. Código e diretórios usam nomes em inglês; documentação e interface podem usar português.
 
 ## Stack tecnológica
 
@@ -96,9 +116,8 @@ O coletor é o único responsável por escrever na camada de dados. A API consul
 - **Next.js com React:** aplicação web e roteamento.
 - **TypeScript:** tipagem do código e dos contratos com a API.
 - **Tailwind CSS:** estilos e layout responsivo.
-- **shadcn/ui:** componentes de interface.
-- **Lucide:** ícones.
-- **Recharts:** gráficos interativos.
+
+Bibliotecas de componentes, ícones e gráficos serão escolhidas e adicionadas somente quando a interface funcional exigir. Isso evita instalar dependências de etapas futuras na base inicial.
 
 ### Fonte de dados
 
@@ -206,11 +225,41 @@ metadex/
 
 Os nomes de diretório do código seguem convenções em inglês para manter consistência com os ecossistemas Python e TypeScript. A documentação e a interface podem permanecer em português.
 
+## Convenções do repositório
+
+### Nomes e módulos
+
+- Módulos, funções e variáveis Python usam `snake_case`; classes usam `PascalCase`.
+- Arquivos e variáveis TypeScript usam nomes descritivos em inglês; componentes React usam `PascalCase`.
+- Rotas HTTP públicas ficam sob `/api/v1`, exceto rotas operacionais como `/health`.
+- Variáveis de ambiente usam `UPPER_SNAKE_CASE`; somente variáveis públicas do navegador recebem o prefixo `NEXT_PUBLIC_`.
+
+### Testes
+
+- Testes unitários do backend ficam em `backend/tests/unit/`.
+- Testes de integração do backend ficam em `backend/tests/integration/`.
+- Arquivos Python de teste seguem `test_*.py`.
+- Testes não devem depender continuamente da OpenDota; respostas pequenas e anonimizadas poderão ser usadas como fixtures quando o contrato da fonte for validado.
+- Testes do frontend devem ficar próximos ao código como `*.test.ts` ou `*.test.tsx` quando forem introduzidos.
+
+### Logs
+
+- Aplicações escrevem logs em `stdout`/`stderr`; logs de execução não são versionados.
+- Mensagens devem incluir contexto operacional, sem chaves de API ou outros segredos.
+- O formato estruturado e os campos obrigatórios serão implementados na etapa de observabilidade.
+
+### Dados e artefatos
+
+- Dados locais ficam exclusivamente em `backend/data/`.
+- `backend/data/raw/` recebe dados de origem imutáveis; `backend/data/processed/` recebe resultados derivados.
+- Bancos `*.duckdb`, arquivos auxiliares `*.duckdb.wal` e conjuntos `*.parquet` são ignorados pelo Git em qualquer diretório.
+- Artefatos de build (`.next/`, `out/`, `dist/`, `build/`) e dependências instaladas (`.venv/`, `node_modules/`) são recriados localmente e não são versionados.
+
 ## Desenvolvimento local
 
 ### Backend
 
-O backend requer Python 3.12 a 3.14 e `uv`:
+O backend requer Python 3.12 a 3.14 e `uv`. A partir da raiz do repositório:
 
 ```bash
 cd backend
@@ -220,6 +269,7 @@ uv run uvicorn app.main:app --reload
 ```
 
 A API ficará disponível em `http://localhost:8000` e a documentação interativa em `http://localhost:8000/docs`.
+O endpoint `http://localhost:8000/health` deve responder `{"status":"ok"}`. A cópia de `.env.example` prepara o ambiente, embora a leitura tipada dessas variáveis só seja implementada em uma etapa posterior.
 
 Para executar as verificações:
 
@@ -229,11 +279,11 @@ uv run ruff check .
 
 ### Frontend
 
-O frontend requer Node.js 20.9 ou superior e `pnpm`:
+O frontend requer Node.js 20.9 ou superior e `pnpm` 11.19.0, versão registrada no `package.json`. Em outro terminal, a partir da raiz do repositório:
 
 ```bash
 cd frontend
-pnpm install
+pnpm install --frozen-lockfile
 cp .env.example .env.local
 pnpm dev
 ```
@@ -249,18 +299,24 @@ pnpm build
 
 ## Configuração
 
-As configurações devem ser recebidas por variáveis de ambiente e documentadas em `backend/.env.example`. Nenhum segredo deve ser versionado.
+As configurações são documentadas nos arquivos `.env.example`. Copie esses arquivos localmente; nunca substitua os exemplos por valores secretos nem versione os arquivos gerados.
 
-Variáveis iniciais previstas:
+### Backend (`backend/.env.example`)
 
-```dotenv
-OPENDOTA_BASE_URL=https://api.opendota.com/api
-OPENDOTA_API_KEY=
-DATA_DIR=./data
-DUCKDB_PATH=./data/metadex.duckdb
-META_WINDOW_DAYS=7
-MIN_SAMPLE_SIZE=100
-```
+| Variável | Padrão de desenvolvimento | Finalidade |
+|---|---|---|
+| `OPENDOTA_BASE_URL` | `https://api.opendota.com/api` | URL base da fonte externa. |
+| `OPENDOTA_API_KEY` | vazio | Chave opcional e secreta; não deve aparecer em logs ou commits. |
+| `DATA_DIR` | `./data` | Diretório dos artefatos locais, relativo a `backend/`. |
+| `DUCKDB_PATH` | `./data/metadex.duckdb` | Caminho do catálogo analítico local. |
+| `META_WINDOW_DAYS` | `7` | Janela inicial do meta em dias. |
+| `MIN_SAMPLE_SIZE` | `100` | Amostra mínima inicial para rankings. |
+
+### Frontend (`frontend/.env.example`)
+
+| Variável | Padrão de desenvolvimento | Finalidade |
+|---|---|---|
+| `NEXT_PUBLIC_API_BASE_URL` | `http://localhost:8000` | Endereço público usado pelo navegador para acessar a API. Não pode conter segredos. |
 
 Os valores definitivos de limites, paginação e intervalo entre requisições serão definidos após a validação da API e não devem ficar espalhados pelo código.
 
@@ -270,19 +326,20 @@ O backend deve testar transformações e métricas com fixtures pequenas e deter
 
 Coletas devem produzir logs estruturados com duração, volume, tentativas, falhas e limites de requisição observados. A API deve expor um endpoint de saúde sem incluir segredos ou detalhes internos sensíveis.
 
-## Roadmap
+## Checklist de arquitetura e escopo
 
-1. Validar os endpoints, os campos e os limites de uso da OpenDota.
-2. Inicializar o backend com `uv`, configuração tipada e testes.
-3. Implementar uma coleta pequena, idempotente e persistida em Parquet.
-4. Criar o modelo processado e o catálogo DuckDB.
-5. Calcular as primeiras métricas de heróis e itens com amostra mínima.
-6. Implementar recomendações contextuais e explicáveis.
-7. Publicar os resultados por meio da FastAPI.
-8. Construir o dashboard em Next.js.
-9. Automatizar atualizações e acompanhar a qualidade dos dados.
+- [x] Backend e frontend possuem comandos reproduzíveis de instalação e execução.
+- [x] Responsabilidades de coleta, armazenamento, transformação, API e interface estão separadas.
+- [x] Escritor único, dados brutos imutáveis e API desacoplada da coleta estão registrados como decisões do MVP.
+- [x] Convenções de nomes, testes, logs e artefatos de dados estão definidas.
+- [x] Arquivos de ambiente de exemplo documentam a configuração sem conter segredos.
+- [x] Segredos, DuckDB, Parquet, dependências locais e builds estão ignorados pelo Git.
+- [x] Itens fora do MVP estão explícitos na seção de escopo.
+- [ ] Endpoints e limitações da OpenDota validados (etapa 2).
+- [ ] Configuração tipada, testes e logs estruturados implementados (etapa 3).
+- [ ] Coleta, persistência, métricas e interface de negócio implementadas (etapas seguintes).
 
-O primeiro marco funcional é coletar uma amostra real, persistir os dados e responder a `GET /api/v1/meta/heroes` com escolhas, vitórias, taxas, período e tamanho da amostra por herói. O marco seguinte adiciona recomendações de heróis e itens sustentadas por essas estatísticas.
+O plano detalhado e a ordem das próximas entregas estão em `metadex-plano-12-etapas.md`.
 
 ## Licença
 

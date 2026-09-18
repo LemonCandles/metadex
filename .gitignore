@@ -27,6 +27,9 @@ backend/data/raw/*
 !backend/data/processed/
 backend/data/processed/*
 !backend/data/processed/.gitkeep
+*.duckdb
+*.duckdb.wal
+*.parquet
 
 # Node.js / Next.js
 node_modules/

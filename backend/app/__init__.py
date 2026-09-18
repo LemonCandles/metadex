@@ -1,0 +1,1 @@
+"""Metadex backend application."""
