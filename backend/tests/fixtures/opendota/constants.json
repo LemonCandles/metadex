@@ -1,0 +1,98 @@
+{
+  "heroes": {
+    "46": {
+      "id": 46,
+      "name": "npc_dota_hero_templar_assassin",
+      "localized_name": "Templar Assassin",
+      "primary_attr": "agi",
+      "attack_type": "Ranged",
+      "roles": ["Carry", "Escape"]
+    },
+    "55": {
+      "id": 55,
+      "name": "npc_dota_hero_dark_seer",
+      "localized_name": "Dark Seer",
+      "primary_attr": "int",
+      "attack_type": "Melee",
+      "roles": ["Initiator", "Escape", "Disabler"]
+    },
+    "84": {
+      "id": 84,
+      "name": "npc_dota_hero_ogre_magi",
+      "localized_name": "Ogre Magi",
+      "primary_attr": "str",
+      "attack_type": "Melee",
+      "roles": ["Support", "Nuker", "Disabler", "Durable", "Initiator"]
+    },
+    "93": {
+      "id": 93,
+      "name": "npc_dota_hero_slark",
+      "localized_name": "Slark",
+      "primary_attr": "agi",
+      "attack_type": "Melee",
+      "roles": ["Carry", "Escape", "Disabler", "Nuker"]
+    }
+  },
+  "items": {
+    "tango": {
+      "id": 44,
+      "dname": "Tango",
+      "qual": "consumable",
+      "cost": 90,
+      "components": null,
+      "created": false,
+      "charges": 3
+    },
+    "quelling_blade": {
+      "id": 11,
+      "dname": "Quelling Blade",
+      "qual": "component",
+      "cost": 100,
+      "components": null,
+      "created": false,
+      "charges": false
+    },
+    "power_treads": {
+      "id": 63,
+      "dname": "Power Treads",
+      "qual": "common",
+      "cost": 1400,
+      "components": ["boots", "gloves", "belt_of_strength"],
+      "created": true,
+      "charges": false
+    },
+    "black_king_bar": {
+      "id": 116,
+      "dname": "Black King Bar",
+      "qual": "epic",
+      "cost": 4050,
+      "components": ["mithril_hammer", "ogre_axe"],
+      "created": true,
+      "charges": false
+    }
+  },
+  "game_modes": {
+    "22": {
+      "id": 22,
+      "name": "game_mode_all_draft",
+      "balanced": true
+    },
+    "23": {
+      "id": 23,
+      "name": "game_mode_turbo",
+      "balanced": false
+    }
+  },
+  "lobby_types": {
+    "0": {
+      "id": 0,
+      "name": "lobby_type_normal",
+      "balanced": true
+    },
+    "7": {
+      "id": 7,
+      "name": "lobby_type_ranked",
+      "balanced": true
+    }
+  }
+}

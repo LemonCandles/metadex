@@ -19,7 +19,7 @@ O projeto não pretende determinar uma estratégia universalmente correta. Seus 
 
 ## Estado do projeto
 
-O projeto está em fase inicial de implementação. A estrutura do monorepo, os ambientes e as dependências do backend e do frontend estão configurados. As funcionalidades descritas neste documento ainda serão implementadas passo a passo.
+As etapas 1 e 2 estão concluídas. A estrutura do monorepo e os ambientes estão configurados, e a fonte OpenDota foi validada com respostas reais anonimizadas. Ainda não existe coletor nem cálculo de métricas: a próxima etapa prepara configuração, testes e observabilidade.
 
 ## Escopo do MVP
 

@@ -69,6 +69,8 @@ Começar a coleta com contratos ou responsabilidades ainda ambíguos pode gerar 
 
 ## Etapa 2 — Validar a OpenDota e o recorte estatístico
 
+**Estado atual:** concluída em 18 de setembro de 2026.
+
 ### Objetivo
 
 Comprovar quais dados podem ser obtidos, com que qualidade e sob quais limites antes de fixar o modelo de dados.

@@ -45,6 +45,9 @@ pnpm-debug.log*
 # Local tooling
 .cache/
 
+# Local project documentation
+/docs/
+
 # Build artifacts
 dist/
 build/
