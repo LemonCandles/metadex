@@ -120,6 +120,8 @@ Assumir filtros inexistentes ou dados de itens completos pode inviabilizar as re
 
 ## Etapa 3 — Preparar configuração, testes e observabilidade
 
+**Estado atual:** concluída em 18 de setembro de 2026.
+
 ### Objetivo
 
 Criar a infraestrutura interna necessária para desenvolver o pipeline com comportamento previsível e diagnóstico claro.

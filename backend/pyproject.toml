@@ -22,9 +22,13 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-addopts = "-q"
+addopts = "-q --strict-markers"
 pythonpath = ["."]
 testpaths = ["tests"]
+markers = [
+    "unit: fast tests for one isolated module",
+    "integration: tests that connect application components without external network access",
+]
 
 [tool.ruff]
 line-length = 100

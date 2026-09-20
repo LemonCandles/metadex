@@ -19,7 +19,7 @@ O projeto não pretende determinar uma estratégia universalmente correta. Seus 
 
 ## Estado do projeto
 
-As etapas 1 e 2 estão concluídas. A estrutura do monorepo e os ambientes estão configurados, e a fonte OpenDota foi validada com respostas reais anonimizadas. Ainda não existe coletor nem cálculo de métricas: a próxima etapa prepara configuração, testes e observabilidade.
+As etapas 1 a 3 estão concluídas. A estrutura do monorepo e os ambientes estão configurados, a fonte OpenDota foi validada com respostas reais anonimizadas e o backend agora possui configuração tipada, testes offline e logs estruturados com proteção de segredos. Ainda não existe coletor nem cálculo de métricas: a próxima etapa implementa o cliente e o coletor assíncrono da OpenDota.
 
 ## Escopo do MVP
 
@@ -275,7 +275,14 @@ Para executar as verificações:
 
 ```bash
 uv run ruff check .
+uv run ruff format --check .
+uv run pytest
 ```
+
+Os testes unitários ficam em `backend/tests/unit/` e os testes de integração em
+`backend/tests/integration/`. Ambos usam fixtures versionadas e não acessam a
+internet. É possível executar apenas um grupo com `uv run pytest -m unit` ou
+`uv run pytest -m integration`.
 
 ### Frontend
 
@@ -305,12 +312,12 @@ As configurações são documentadas nos arquivos `.env.example`. Copie esses ar
 
 | Variável | Padrão de desenvolvimento | Finalidade |
 |---|---|---|
-| `OPENDOTA_BASE_URL` | `https://api.opendota.com/api` | URL base da fonte externa. |
+| `OPENDOTA_BASE_URL` | `https://api.opendota.com/api` | URL HTTP base da fonte externa, sem parâmetros de consulta. |
 | `OPENDOTA_API_KEY` | vazio | Chave opcional e secreta; não deve aparecer em logs ou commits. |
-| `DATA_DIR` | `./data` | Diretório dos artefatos locais, relativo a `backend/`. |
-| `DUCKDB_PATH` | `./data/metadex.duckdb` | Caminho do catálogo analítico local. |
-| `META_WINDOW_DAYS` | `7` | Janela inicial do meta em dias. |
-| `MIN_SAMPLE_SIZE` | `100` | Amostra mínima inicial para rankings. |
+| `DATA_DIR` | `./data` | Diretório dos artefatos locais; caminhos relativos partem de `backend/`. |
+| `DUCKDB_PATH` | `./data/metadex.duckdb` | Caminho validado do catálogo analítico local. |
+| `META_WINDOW_DAYS` | `7` | Janela inicial do meta, entre 1 e 365 dias. |
+| `MIN_SAMPLE_SIZE` | `100` | Amostra mínima positiva para rankings. |
 
 ### Frontend (`frontend/.env.example`)
 
@@ -322,9 +329,11 @@ Os valores definitivos de limites, paginação e intervalo entre requisições s
 
 ## Testes e observabilidade
 
-O backend deve testar transformações e métricas com fixtures pequenas e determinísticas. Testes automatizados não devem depender continuamente da disponibilidade da OpenDota; respostas representativas podem ser gravadas e anonimizadas para testes de integração.
+O backend separa testes unitários de testes de integração. As fixtures pequenas e determinísticas da OpenDota são carregadas por um utilitário compartilhado, e a suíte completa roda sem depender da internet.
 
-Coletas devem produzir logs estruturados com duração, volume, tentativas, falhas e limites de requisição observados. A API deve expor um endpoint de saúde sem incluir segredos ou detalhes internos sensíveis.
+O logger do projeto emite um objeto JSON por linha e remove chaves, tokens e valores secretos, inclusive em estruturas aninhadas. O modelo de execução reúne identificador, operação, estado, duração, volumes, tentativas e falhas. Os módulos futuros devem reutilizar esse contexto em vez de criar formatos próprios. A API expõe um endpoint de saúde sem incluir segredos ou detalhes internos sensíveis.
+
+Falhas esperadas são classificadas em três categorias: recuperáveis, de dados e permanentes. Essa classificação descreve a natureza do problema; a política de novas tentativas pertence ao cliente da etapa 4.
 
 ## Checklist de arquitetura e escopo
 
@@ -335,8 +344,8 @@ Coletas devem produzir logs estruturados com duração, volume, tentativas, falh
 - [x] Arquivos de ambiente de exemplo documentam a configuração sem conter segredos.
 - [x] Segredos, DuckDB, Parquet, dependências locais e builds estão ignorados pelo Git.
 - [x] Itens fora do MVP estão explícitos na seção de escopo.
-- [ ] Endpoints e limitações da OpenDota validados (etapa 2).
-- [ ] Configuração tipada, testes e logs estruturados implementados (etapa 3).
+- [x] Endpoints e limitações da OpenDota validados (etapa 2).
+- [x] Configuração tipada, testes e logs estruturados implementados (etapa 3).
 - [ ] Coleta, persistência, métricas e interface de negócio implementadas (etapas seguintes).
 
 O plano detalhado e a ordem das próximas entregas estão em `metadex-plano-12-etapas.md`.
