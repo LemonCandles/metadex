@@ -19,7 +19,12 @@ O projeto não pretende determinar uma estratégia universalmente correta. Seus 
 
 ## Estado do projeto
 
-As etapas 1 a 3 estão concluídas. A estrutura do monorepo e os ambientes estão configurados, a fonte OpenDota foi validada com respostas reais anonimizadas e o backend agora possui configuração tipada, testes offline e logs estruturados com proteção de segredos. Ainda não existe coletor nem cálculo de métricas: a próxima etapa implementa o cliente e o coletor assíncrono da OpenDota.
+As etapas 1 a 6 estão implementadas. O backend possui configuração tipada,
+testes offline, logs estruturados, coleta controlada, arquivo bruto em Parquet
+e normalização com relatório de qualidade. Ainda não existe catálogo DuckDB,
+cálculo de métricas nem dashboard de dados. As coletas brutas feitas neste
+ambiente terminaram sem partidas por falha de rede; uma amostra real arquivada
+continua pendente para validar o fluxo completo com dados atuais.
 
 ## Escopo do MVP
 
@@ -269,7 +274,9 @@ uv run uvicorn app.main:app --reload
 ```
 
 A API ficará disponível em `http://localhost:8000` e a documentação interativa em `http://localhost:8000/docs`.
-O endpoint `http://localhost:8000/health` deve responder `{"status":"ok"}`. A cópia de `.env.example` prepara o ambiente, embora a leitura tipada dessas variáveis só seja implementada em uma etapa posterior.
+O endpoint `http://localhost:8000/health` deve responder `{"status":"ok"}`. A
+cópia de `.env.example` é opcional enquanto os valores padrão servirem; a
+leitura tipada dessas variáveis já está implementada.
 
 Para executar as verificações:
 
@@ -325,7 +332,64 @@ As configurações são documentadas nos arquivos `.env.example`. Copie esses ar
 |---|---|---|
 | `NEXT_PUBLIC_API_BASE_URL` | `http://localhost:8000` | Endereço público usado pelo navegador para acessar a API. Não pode conter segredos. |
 
-Os valores definitivos de limites, paginação e intervalo entre requisições serão definidos após a validação da API e não devem ficar espalhados pelo código.
+O cliente da OpenDota usa timeout de 10 segundos, no máximo três tentativas por
+requisição, espera progressiva de 1 e 2 segundos e pausa de 1,1 segundo entre
+páginas. Os limites ficam em `backend/app/collectors/opendota.py`. O comando de
+coleta aceita no máximo cinco páginas e 200 partidas por execução. Ele consulta
+somente `/publicMatches?min_rank=70`. A persistência bruta e a normalização já
+estão implementadas; a seleção final do recorte estatístico para métricas ainda
+depende das etapas de agregação.
+
+Para executar uma amostra pequena, a partir de `backend/`:
+
+```bash
+uv run python -m app.collectors --count 2 --max-pages 1
+```
+
+O comando escreve um objeto JSON com as partidas e os metadados da execução na
+saída padrão; logs estruturados saem na saída de erro. Os códigos de saída são
+`0` para sucesso, `2` para amostra parcial e `1` para falha sem partidas.
+Cada página da OpenDota pode trazer até 100 partidas mesmo quando `--count` é
+menor; o excedente aparece na contagem `discarded_count`.
+
+Para arquivar a amostra bruta, acrescente `--save` ao comando. Cada execução
+gera `manifest.json` e `matches.parquet` em
+`backend/data/raw/public_matches/collected_date=AAAA-MM-DD/run_ID/`.
+O Parquet guarda o JSON integral de cada partida selecionada e os metadados da
+requisição; o manifesto registra parâmetros, páginas, volumes, estado e erros.
+Uma nova coleta pode reutilizar IDs: nesse caso, somente o primeiro payload
+gravado para cada `match_id` permanece no conjunto bruto, e o novo manifesto
+aponta para esses IDs. O arquivo da execução fica visível somente após a
+gravação completa. O MVP pressupõe um único processo escritor.
+
+Para inspecionar os arquivos sem rede, em `backend/`:
+
+```bash
+uv run python -m app.storage partitions
+uv run python -m app.storage runs
+uv run python -m app.storage read ID_DA_EXECUCAO
+```
+
+A leitura recompõe as partidas selecionadas na ordem da execução. O comando
+`--save` também registra execuções sem partidas, para manter a falha auditável.
+O [guia da etapa 5](docs/etapa-5-explicacao.md) explica o fluxo e os testes.
+
+Para normalizar uma execução arquivada, copie seu `run_id` da saída de `runs`
+e execute em `backend/`:
+
+```bash
+uv run python -m app.analytics RUN_ID
+```
+
+O comando lê apenas os dados brutos locais e grava `matches.parquet`,
+`match_players.parquet`, `player_items.parquet` e `quality.json` em
+`backend/data/processed/public_matches/RUN_ID/`. O relatório informa partidas
+aceitas e rejeitadas, motivos e campos ausentes nas partidas aceitas. A coleta
+atual usa `/publicMatches`, que não informa itens nem o `player_slot` real;
+portanto, `player_items.parquet` fica vazio, e `player_slot` e posição ficam
+nulos. A transformação de detalhes de partida já é testada, mas ainda não há
+coleta de detalhes. O [guia da etapa 6](docs/etapa-6-explicacao.md) explica as
+regras, os arquivos e a validação.
 
 ## Testes e observabilidade
 
@@ -346,7 +410,10 @@ Falhas esperadas são classificadas em três categorias: recuperáveis, de dados
 - [x] Itens fora do MVP estão explícitos na seção de escopo.
 - [x] Endpoints e limitações da OpenDota validados (etapa 2).
 - [x] Configuração tipada, testes e logs estruturados implementados (etapa 3).
-- [ ] Coleta, persistência, métricas e interface de negócio implementadas (etapas seguintes).
+- [x] Cliente e coleta pequena assíncrona implementados (etapa 4).
+- [x] Persistência bruta em Parquet implementada (etapa 5).
+- [x] Normalização e relatório de qualidade implementados (etapa 6).
+- [ ] Catálogo, métricas e interface de negócio implementados (etapas seguintes).
 
 O plano detalhado e a ordem das próximas entregas estão em `metadex-plano-12-etapas.md`.
 

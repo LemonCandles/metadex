@@ -174,6 +174,8 @@ Configuração espalhada e logs informais tornam falhas de coleta difíceis de r
 
 ## Etapa 4 — Implementar o cliente e o coletor assíncrono
 
+**Estado atual:** concluída em 25 de setembro de 2026.
+
 ### Objetivo
 
 Buscar uma amostra pequena da OpenDota de forma controlada, resiliente e observável.
@@ -217,6 +219,9 @@ Concorrência agressiva ou repetições ilimitadas podem bloquear o acesso e ocu
 ---
 
 ## Etapa 5 — Persistir a camada bruta em Parquet
+
+**Estado atual:** implementação concluída em 25 de setembro de 2026; a validação
+com amostra real aguarda acesso à OpenDota neste ambiente.
 
 ### Objetivo
 
@@ -264,6 +269,10 @@ Descartar campos muito cedo pode impedir a correção de transformações sem um
 ---
 
 ## Etapa 6 — Normalizar partidas, jogadores e itens
+
+**Estado atual:** implementação concluída em 25 de setembro de 2026 para os
+payloads disponíveis; a coleta atual arquiva somente `/publicMatches`, por isso
+itens reais dependem de detalhes de partida preservados em uma coleta futura.
 
 ### Objetivo
 
