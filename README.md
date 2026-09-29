@@ -19,12 +19,13 @@ O projeto não pretende determinar uma estratégia universalmente correta. Seus 
 
 ## Estado do projeto
 
-As etapas 1 a 6 estão implementadas. O backend possui configuração tipada,
-testes offline, logs estruturados, coleta controlada, arquivo bruto em Parquet
-e normalização com relatório de qualidade. Ainda não existe catálogo DuckDB,
-cálculo de métricas nem dashboard de dados. As coletas brutas feitas neste
-ambiente terminaram sem partidas por falha de rede; uma amostra real arquivada
-continua pendente para validar o fluxo completo com dados atuais.
+As etapas 1 a 7 estão implementadas. O backend possui configuração tipada,
+testes offline, logs estruturados, coleta controlada, arquivo bruto em Parquet,
+normalização com relatório de qualidade, catálogo DuckDB e pipeline local com
+publicação de versões consistentes. O cálculo de métricas e o dashboard de
+dados pertencem às próximas etapas. O fluxo completo da etapa 7 é validado
+com fixtures offline; uma amostra real arquivada continua pendente para
+validar o fluxo com dados atuais.
 
 ## Escopo do MVP
 
@@ -87,6 +88,7 @@ Next.js
 - `backend/app/collectors/`: acessa fontes externas e inicia a entrada de dados.
 - `backend/app/storage/`: grava e lê Parquet e DuckDB; no MVP, somente um processo pode escrever.
 - `backend/app/analytics/`: transforma dados preservados e calcula resultados explicáveis.
+- `backend/app/pipeline/`: orquestra as etapas e publica uma versão completa dos dados.
 - `backend/app/api/`: publica contratos HTTP e apenas lê resultados já processados.
 - `backend/app/core/`: concentra configuração e utilitários compartilhados.
 - `frontend/src/app/`: contém páginas, layouts e rotas da interface.
@@ -94,7 +96,12 @@ Next.js
 - `frontend/src/lib/`: concentra o cliente HTTP e utilitários do navegador.
 - `frontend/src/types/`: mantém tipos TypeScript compartilhados pela interface.
 
-O coletor é o único responsável por escrever na camada de dados. Os dados brutos são imutáveis: correções geram um novo processamento, nunca uma edição silenciosa da origem. A API consulta resultados processados e não dispara coletas durante uma requisição do usuário. Essa separação evita que latência ou indisponibilidade da OpenDota comprometam o dashboard.
+Os comandos locais de coleta e processamento escrevem na camada de dados sob
+um bloqueio de escritor único. Os dados brutos são imutáveis: correções geram
+um novo processamento, nunca uma edição silenciosa da origem. A API consulta
+resultados processados e não dispara coletas durante uma requisição do usuário.
+Essa separação evita que latência ou indisponibilidade da OpenDota comprometam
+o dashboard.
 
 ### Decisões fixas do MVP
 
@@ -144,7 +151,9 @@ Os artefatos locais ficam em `backend/data/`, que não é versionado:
 ```text
 backend/data/
 ├── raw/                 # Respostas preservadas para reprocessamento
-├── processed/           # Entidades limpas e normalizadas
+├── processed/
+│   ├── public_matches/  # Normalização individual da etapa 6
+│   └── versions/        # Versões completas publicadas pelo pipeline
 └── metadex.duckdb       # Catálogo, execuções e agregações
 ```
 
@@ -207,6 +216,7 @@ metadex/
 │   │   ├── main.py              # Inicialização da FastAPI
 │   │   ├── api/                 # Rotas e contratos HTTP
 │   │   ├── analytics/           # Métricas e agregações
+│   │   ├── pipeline/            # Orquestração e publicação de versões
 │   │   ├── collectors/          # Coleta da OpenDota
 │   │   ├── core/                # Configuração e utilitários compartilhados
 │   │   └── storage/             # DuckDB, Parquet e repositórios de dados
@@ -391,6 +401,84 @@ nulos. A transformação de detalhes de partida já é testada, mas ainda não h
 coleta de detalhes. O [guia da etapa 6](docs/etapa-6-explicacao.md) explica as
 regras, os arquivos e a validação.
 
+### Catálogo e pipeline (etapa 7)
+
+Para coletar uma amostra e executar o fluxo completo, em `backend/`:
+
+```bash
+uv run python -m app.pipeline run --count 2 --max-pages 1
+```
+
+A sequência é `collect → validate → normalize → aggregate → publish`.
+A coleta é arquivada primeiro; depois, o pipeline relê todas as execuções
+brutas confirmadas, valida os hashes dos payloads e deduplica por `match_id`.
+Ele normaliza uma versão cumulativa, verifica a integridade entre partidas,
+participantes e itens e agrega contagens de auditoria em
+`dataset_counts.parquet`. As métricas de heróis serão implementadas na etapa 8.
+
+Para repetir o processamento sem acessar a OpenDota:
+
+```bash
+uv run python -m app.pipeline reprocess
+```
+
+Cada execução usa um novo identificador, mas as mesmas entradas produzem
+as mesmas entidades e contagens. Os arquivos anteriores permanecem preservados.
+Registros rejeitados ficam no relatório de qualidade; somente os aceitos
+entram nas entidades publicadas. Uma entrada sem partidas válidas falha e
+preserva a publicação anterior.
+
+O catálogo em `DUCKDB_PATH` contém:
+
+| Contrato | Conteúdo |
+|---|---|
+| `pipeline_runs` | Etapa, estado, duração, volumes, tentativas, origem e erro de cada execução. |
+| `collection_runs` | Manifestos das coletas brutas confirmadas. |
+| `dataset_versions` | Versões publicadas, versões substituídas, versões das transformações e manifestos. |
+| `current_publication` | Identificador da versão atual. |
+| `raw_matches` | Payloads e metadados brutos pertencentes à versão atual. |
+| `matches`, `match_players`, `player_items` | Visões estáveis das entidades da versão atual. |
+| `dataset_counts` | Contagens auditáveis das quatro entidades. |
+
+Os artefatos de cada versão ficam em
+`backend/data/processed/versions/RUN_ID/`: três Parquets de entidades,
+`dataset_counts.parquet`, `quality.json`, `version.json` com esquemas,
+origens e checksums e `published.json` para recuperação da publicação.
+As visões apontam para arquivos específicos. Coletas posteriores e diretórios
+de preparação não alteram uma versão já publicada.
+
+A promoção troca todas as visões, o identificador atual e o estado final da
+execução em uma única transação DuckDB. Uma falha intermediária ou na promoção
+mantém a versão anterior consultável. Uma coleta parcial ou com falha fica
+arquivada, termina sem publicar e pode ser aproveitada depois por um
+`reprocess` explícito. Os comandos retornam JSON em `stdout`, logs em `stderr`
+e códigos `0` para sucesso, `2` para coleta parcial e `1` para falha.
+
+Para inicializar ou reconstruir o catálogo a partir dos artefatos locais:
+
+```bash
+uv run python -m app.pipeline rebuild
+```
+
+O comando verifica schemas, checksums, contagens e integridade e restaura as
+publicações completas e suas execuções bem-sucedidas, selecionando a mais
+recente. Resultados sem comprovante de publicação e diretórios de preparação
+são ignorados. Sem publicações anteriores, cria visões processadas vazias com
+tipos definidos e uma visão das coletas brutas confirmadas; execute `reprocess`
+para publicar os dados. O histórico de falhas é mantido no DuckDB e não pode
+ser recuperado se esse arquivo for perdido.
+
+Todos os escritores compartilham bloqueios locais em `raw/`, `processed/`
+e ao lado do catálogo, inclusive os comandos anteriores `collectors --save`
+e `analytics`. Um segundo escritor recebe um erro imediatamente. Os arquivos
+de bloqueio permanecem no disco, mas o sistema operacional libera o bloqueio
+quando o processo termina. Esse controle usa `flock` em Linux/macOS.
+
+Consultas externas podem abrir o catálogo com `duckdb.connect(..., read_only=True)`
+após o término do escritor. O [modo local do DuckDB](https://duckdb.org/docs/current/connect/concurrency.html)
+permite um processo com escrita ou múltiplos processos somente de leitura;
+a integração de leitura pela API ainda pertence à etapa 9.
+
 ## Testes e observabilidade
 
 O backend separa testes unitários de testes de integração. As fixtures pequenas e determinísticas da OpenDota são carregadas por um utilitário compartilhado, e a suíte completa roda sem depender da internet.
@@ -413,7 +501,8 @@ Falhas esperadas são classificadas em três categorias: recuperáveis, de dados
 - [x] Cliente e coleta pequena assíncrona implementados (etapa 4).
 - [x] Persistência bruta em Parquet implementada (etapa 5).
 - [x] Normalização e relatório de qualidade implementados (etapa 6).
-- [ ] Catálogo, métricas e interface de negócio implementados (etapas seguintes).
+- [x] Catálogo DuckDB, pipeline local, escritor único e publicação consistente implementados (etapa 7).
+- [ ] Métricas e interface de negócio implementadas (etapas seguintes).
 
 O plano detalhado e a ordem das próximas entregas estão em `metadex-plano-12-etapas.md`.
 

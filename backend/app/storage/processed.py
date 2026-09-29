@@ -12,6 +12,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from app.analytics.normalize import Normalized, normalize
+from app.storage.locking import writer_lock
 from app.storage.raw import DATASET, RUN_ID_PATTERN, read_run
 
 NORMALIZER_VERSION = 1
@@ -61,6 +62,21 @@ def _sha256(path: Path) -> str:
 
 def persist_normalized(processed_root: Path, run_id: str, result: Normalized) -> dict[str, Any]:
     """Commit one deterministic version; refuse a changed result under the same run ID."""
+    with writer_lock(processed_root / ".writer.lock"):
+        return _persist_normalized(processed_root, run_id, result)
+
+
+def write_normalized_tables(destination: Path, result: Normalized) -> None:
+    """Write into a caller-owned staging directory; the caller commits the whole bundle."""
+    for filename, rows, schema in (
+        ("matches.parquet", result.matches, MATCHES_SCHEMA),
+        ("match_players.parquet", result.match_players, MATCH_PLAYERS_SCHEMA),
+        ("player_items.parquet", result.player_items, PLAYER_ITEMS_SCHEMA),
+    ):
+        pq.write_table(pa.Table.from_pylist(rows, schema=schema), destination / filename)
+
+
+def _persist_normalized(processed_root: Path, run_id: str, result: Normalized) -> dict[str, Any]:
     if not RUN_ID_PATTERN.fullmatch(run_id):
         raise ValueError("invalid run_id")
     base = processed_root / DATASET
@@ -75,12 +91,7 @@ def persist_normalized(processed_root: Path, run_id: str, result: Normalized) ->
         **result.quality,
     }
     try:
-        for filename, rows, schema in (
-            ("matches.parquet", result.matches, MATCHES_SCHEMA),
-            ("match_players.parquet", result.match_players, MATCH_PLAYERS_SCHEMA),
-            ("player_items.parquet", result.player_items, PLAYER_ITEMS_SCHEMA),
-        ):
-            pq.write_table(pa.Table.from_pylist(rows, schema=schema), staging / filename)
+        write_normalized_tables(staging, result)
         (staging / "quality.json").write_text(
             json.dumps(report, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n",
             encoding="utf-8",

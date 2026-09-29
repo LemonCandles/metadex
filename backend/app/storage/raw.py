@@ -16,6 +16,7 @@ import pyarrow.parquet as pq
 from app.collectors.public_matches import CollectionResult
 from app.core.clock import to_utc_iso
 from app.core.runs import RunStatus
+from app.storage.locking import writer_lock
 
 COLLECTOR_VERSION = "0.1.0"
 DATASET = "public_matches"
@@ -40,7 +41,8 @@ def _json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-def _run_dirs(raw_root: Path) -> list[Path]:
+def list_run_paths(raw_root: Path) -> list[Path]:
+    """List only atomically committed raw runs, never staging directories."""
     base = raw_root / DATASET
     return sorted(
         path
@@ -52,7 +54,7 @@ def _run_dirs(raw_root: Path) -> list[Path]:
 def list_partitions(raw_root: Path) -> list[str]:
     """List committed collection dates; staging directories are invisible."""
     return sorted(
-        {path.parent.name.removeprefix("collected_date=") for path in _run_dirs(raw_root)}
+        {path.parent.name.removeprefix("collected_date=") for path in list_run_paths(raw_root)}
     )
 
 
@@ -60,13 +62,13 @@ def list_runs(raw_root: Path) -> list[dict[str, Any]]:
     """Return committed manifests in collection-date order."""
     return [
         json.loads((path / "manifest.json").read_text(encoding="utf-8"))
-        for path in _run_dirs(raw_root)
+        for path in list_run_paths(raw_root)
     ]
 
 
 def _stored_ids(raw_root: Path) -> set[int]:
     ids: set[int] = set()
-    for path in _run_dirs(raw_root):
+    for path in list_run_paths(raw_root):
         table = pq.read_table(path / "matches.parquet", columns=["match_id"])
         ids.update(table.column("match_id").to_pylist())
     return ids
@@ -76,6 +78,13 @@ def persist_collection(
     raw_root: Path, result: CollectionResult, *, max_pages: int
 ) -> dict[str, Any]:
     """Commit one result atomically; the first committed payload wins per match ID."""
+    with writer_lock(raw_root / ".writer.lock"):
+        return _persist_collection(raw_root, result, max_pages=max_pages)
+
+
+def _persist_collection(
+    raw_root: Path, result: CollectionResult, *, max_pages: int
+) -> dict[str, Any]:
     if result.run.status is RunStatus.RUNNING:
         raise ValueError("cannot persist an unfinished collection")
     if not RUN_ID_PATTERN.fullmatch(result.run.run_id):
@@ -150,13 +159,13 @@ def read_run(raw_root: Path, run_id: str) -> tuple[dict[str, Any], list[dict[str
     """Rebuild the selected sample from local Parquet, with no network access."""
     if not RUN_ID_PATTERN.fullmatch(run_id):
         raise ValueError("invalid run_id")
-    paths = [path for path in _run_dirs(raw_root) if path.name == run_id]
+    paths = [path for path in list_run_paths(raw_root) if path.name == run_id]
     if len(paths) != 1:
         raise FileNotFoundError(f"committed run not found: {run_id}")
     manifest = json.loads((paths[0] / "manifest.json").read_text(encoding="utf-8"))
     wanted = set(manifest["match_ids"])
     payloads: dict[int, dict[str, Any]] = {}
-    for path in _run_dirs(raw_root):
+    for path in list_run_paths(raw_root):
         for row in pq.read_table(path / "matches.parquet").to_pylist():
             if row["match_id"] in wanted:
                 if (

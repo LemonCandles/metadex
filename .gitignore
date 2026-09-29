@@ -30,6 +30,7 @@ backend/data/processed/*
 *.duckdb
 *.duckdb.wal
 *.parquet
+*.writer.lock
 
 # Node.js / Next.js
 node_modules/

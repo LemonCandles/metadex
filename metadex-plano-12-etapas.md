@@ -327,6 +327,10 @@ Inferências silenciosas sobre posição ou itens podem parecer fatos e contamin
 
 ## Etapa 7 — Criar o catálogo DuckDB e orquestrar o pipeline
 
+**Estado atual:** implementação concluída em 28 de setembro de 2026, com
+validação offline de publicação, falhas, reconstrução e bloqueio de escritores.
+Uma amostra real arquivada continua pendente para a validação com dados atuais.
+
 ### Objetivo
 
 Centralizar metadados, visões e execuções para consultar Parquet por contratos estáveis.
