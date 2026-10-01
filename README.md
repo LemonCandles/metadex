@@ -19,13 +19,14 @@ O projeto não pretende determinar uma estratégia universalmente correta. Seus 
 
 ## Estado do projeto
 
-As etapas 1 a 7 estão implementadas. O backend possui configuração tipada,
-testes offline, logs estruturados, coleta controlada, arquivo bruto em Parquet,
-normalização com relatório de qualidade, catálogo DuckDB e pipeline local com
-publicação de versões consistentes. O cálculo de métricas e o dashboard de
-dados pertencem às próximas etapas. O fluxo completo da etapa 7 é validado
-com fixtures offline; uma amostra real arquivada continua pendente para
-validar o fluxo com dados atuais.
+As etapas 1 a 9 estão implementadas e validadas com testes offline e dados reais.
+O backend coleta resumos, detalhes e catálogos da OpenDota, preserva a origem,
+normaliza entidades, materializa métricas diárias e publica versões consultadas
+pela API de ranking, detalhe e tendência. Backend e frontend foram instalados
+pelos lockfiles; lint, testes, build e consultas HTTP locais foram verificados.
+O [registro de validação](docs/etapas-1-9-validacao.md) reúne volumes, comandos,
+reprocessamento e reconstrução. Recomendações, dashboard e automação diária
+pertencem às etapas 10, 11 e 12.
 
 ## Escopo do MVP
 
@@ -192,9 +193,11 @@ As transformações devem ser reproduzíveis e cobrir, no mínimo:
 - registro da versão ou data de atualização dos metadados de heróis;
 - testes para as fórmulas das métricas.
 
-## API inicial
+## API versionada (etapa 9)
 
-O contrato definitivo será definido durante a implementação. O MVP deve oferecer, no mínimo:
+Os endpoints de saúde e métricas estão implementados. A documentação interativa
+fica em `/docs`, e o contrato OpenAPI em `/openapi.json`. Recomendações pertencem
+à etapa 10:
 
 ```text
 GET /health
@@ -205,7 +208,68 @@ GET /api/v1/recommendations/heroes
 GET /api/v1/recommendations/items
 ```
 
-As respostas de estatísticas devem incluir o período consultado, a data da última atualização e o tamanho da amostra, além dos valores calculados.
+As respostas de métricas incluem `period`, `filters`, `updated_at`, `version_id`
+e `sample`. A atualização é o horário da publicação consultada. A API só lê a
+última versão consistente; uma requisição nunca coleta nem publica dados.
+
+| Parâmetro | Comportamento |
+|---|---|
+| `period_start`, `period_end` | Datas `AAAA-MM-DD`, fornecidas juntas; início inclusivo e fim exclusivo, em UTC. A janela aceita de 1 a 365 dias. Sem datas, usa `META_WINDOW_DAYS` dias completos anteriores ao dia atual UTC. |
+| `cohort` | `all` (padrão): partidas normalizadas válidas. `high_skill_public_v1`: rank médio >=70, cobertura >=5 e modo/lobby balanceados segundo os catálogos da publicação; sem catálogo vinculado, responde `503`. |
+| `game_mode`, `lobby_type` | IDs exatos que refinam o recorte escolhido. |
+| `skill_min`, `skill_max` | Limites inclusivos de `avg_rank_tier`, entre 0 e 85. Exigem cobertura de rank positiva; não representam o rank individual de todos os participantes. |
+| `rank_coverage_min` | Entre 1 e 10 jogadores com rank informado. |
+| `order_by`, `order` | Apenas no ranking: `picks`, `wins`, `losses`, `pick_rate` ou `win_rate`; `asc` ou `desc`. Padrão: `win_rate` decrescente. Empates usam `hero_id` crescente. |
+| `include_below_min` | Apenas no ranking: `true` inclui amostras abaixo de `MIN_SAMPLE_SIZE` para auditoria. O padrão é `false`. |
+
+`pick_rate = picks / partidas elegíveis` e `win_rate = wins / picks`, na escala
+de 0 a 1. As contagens são somadas antes das divisões. O denominador de escolhas
+inclui partidas em que o herói não apareceu. `sample.matches` conta as partidas
+do recorte; `hero.sample_size` conta escolhas do herói. O detalhe mantém amostras
+pequenas consultáveis e informa `meets_min_sample`.
+
+O ranking responde `200` com `heroes: []` e `status: no_data` quando o período
+não contém partidas. Se há partidas, mas nenhum herói atinge a amostra mínima,
+usa `status: below_min_sample`. Um herói observado na publicação pode ter
+zero escolhas no período; um ID nunca observado recebe `404`. Taxas sem
+denominador são `null`, e filtros não suportados, como posição, recebem `422`.
+
+A tendência inclui cada dia do período e uma janela anterior de mesma duração,
+com os mesmos filtros e a mesma publicação. Diferenças só são calculadas quando
+ambas têm partidas em todos os dias. O campo `comparison.status` distingue
+`comparable`, `insufficient_history`, `incomplete_current_period` e
+`no_current_data`. Ter partidas diariamente não garante cobertura completa da
+OpenDota nem demonstra causalidade.
+
+Erros têm o formato `{"error":{"code":"...","message":"...","details":[]}}`.
+Parâmetros inválidos usam `422`; catálogo ausente, sem publicação, ocupado ou
+ilegível usa `503`, sem expor caminhos, SQL ou segredos. `/health` continua
+respondendo `{"status":"ok"}` nesses casos: ele verifica a aplicação, não os dados.
+As conexões são abertas somente durante cada consulta e fechadas ao final.
+Uma consulta pode receber `503` durante a execução de um escritor DuckDB;
+execute o pipeline fora das requisições e tente novamente após sua conclusão.
+
+O pipeline materializa e valida `hero_daily_stats.parquet` antes da publicação.
+Sem filtros, a API lê suas contagens; com filtros, recalcula a partir das
+entidades usando o mesmo recorte no numerador e denominador. Publicações antigas
+com agregador 1 permanecem legíveis por esse segundo caminho. Os quatro
+catálogos da fonte são preservados e vinculados em `metadata.json` por versão.
+
+Após publicar dados, exemplos de consultas são:
+
+```bash
+curl 'http://localhost:8000/api/v1/meta/heroes?include_below_min=true&order_by=picks'
+curl 'http://localhost:8000/api/v1/meta/heroes/1?period_start=2026-09-18&period_end=2026-09-19'
+curl 'http://localhost:8000/api/v1/meta/heroes/1/trend?period_start=2026-09-18&period_end=2026-09-19'
+```
+
+As datas acima correspondem às fixtures preservadas. Para outros dados locais,
+informe seu período real. Os testes da etapa 9 executam coleta simulada com
+projeções de respostas reais, armazenamento, publicação e consultas HTTP em
+diretórios temporários. A validação real das etapas 1–9 também executou novas
+coletas e confirmou as respostas com o servidor HTTP local.
+O [guia para iniciantes](docs/etapa-9-explicacao.md) acompanha a execução entre
+os arquivos e ensina a reproduzir a validação.
 
 ## Estrutura inicial do repositório
 
@@ -261,7 +325,7 @@ Os nomes de diretório do código seguem convenções em inglês para manter con
 
 - Aplicações escrevem logs em `stdout`/`stderr`; logs de execução não são versionados.
 - Mensagens devem incluir contexto operacional, sem chaves de API ou outros segredos.
-- O formato estruturado e os campos obrigatórios serão implementados na etapa de observabilidade.
+- O formato estruturado e os campos operacionais estão implementados em `backend/app/core/logging.py` e `runs.py`.
 
 ### Dados e artefatos
 
@@ -334,7 +398,8 @@ As configurações são documentadas nos arquivos `.env.example`. Copie esses ar
 | `DATA_DIR` | `./data` | Diretório dos artefatos locais; caminhos relativos partem de `backend/`. |
 | `DUCKDB_PATH` | `./data/metadex.duckdb` | Caminho validado do catálogo analítico local. |
 | `META_WINDOW_DAYS` | `7` | Janela inicial do meta, entre 1 e 365 dias. |
-| `MIN_SAMPLE_SIZE` | `100` | Amostra mínima positiva para rankings. |
+| `MIN_SAMPLE_SIZE` | `100` | Amostra mínima positiva de escolhas por herói para rankings. |
+| `CORS_ORIGINS` | `["http://localhost:3000","http://127.0.0.1:3000"]` | Lista JSON de origens autorizadas a consultar a API no navegador. Sem caminhos ou credenciais. |
 
 ### Frontend (`frontend/.env.example`)
 
@@ -345,10 +410,22 @@ As configurações são documentadas nos arquivos `.env.example`. Copie esses ar
 O cliente da OpenDota usa timeout de 10 segundos, no máximo três tentativas por
 requisição, espera progressiva de 1 e 2 segundos e pausa de 1,1 segundo entre
 páginas. Os limites ficam em `backend/app/collectors/opendota.py`. O comando de
-coleta aceita no máximo cinco páginas e 200 partidas por execução. Ele consulta
-somente `/publicMatches?min_rank=70`. A persistência bruta e a normalização já
-estão implementadas; a seleção final do recorte estatístico para métricas ainda
-depende das etapas de agregação.
+coleta pública aceita no máximo cinco páginas e 200 partidas por execução.
+Além de `/publicMatches?min_rank=70`, o cliente consulta detalhes por ID e
+quatro catálogos. Detalhes são sequenciais e limitados a vinte IDs.
+O recorte estatístico é selecionado explicitamente pela API ou pelo comando de
+consulta; receber uma candidata não significa aprová-la para alto nível.
+
+Para preservar os catálogos e coletar detalhes junto da amostra:
+
+```bash
+uv run python -m app.collectors --metadata --save
+uv run python -m app.pipeline run --count 10 --max-pages 1 --with-details
+```
+
+Detalhes isolados usam `uv run python -m app.collectors --details ID --save`,
+substituindo `ID` por um identificador real. Os quatro catálogos são guardados
+em `raw/constants/`; somente uma captura completa é vinculada ao processamento.
 
 Para executar uma amostra pequena, a partir de `backend/`:
 
@@ -368,7 +445,7 @@ gera `manifest.json` e `matches.parquet` em
 O Parquet guarda o JSON integral de cada partida selecionada e os metadados da
 requisição; o manifesto registra parâmetros, páginas, volumes, estado e erros.
 Uma nova coleta pode reutilizar IDs: nesse caso, somente o primeiro payload
-gravado para cada `match_id` permanece no conjunto bruto, e o novo manifesto
+gravado para cada `(fonte, match_id)` permanece no conjunto bruto, e o novo manifesto
 aponta para esses IDs. O arquivo da execução fica visível somente após a
 gravação completa. O MVP pressupõe um único processo escritor.
 
@@ -394,12 +471,12 @@ uv run python -m app.analytics RUN_ID
 O comando lê apenas os dados brutos locais e grava `matches.parquet`,
 `match_players.parquet`, `player_items.parquet` e `quality.json` em
 `backend/data/processed/public_matches/RUN_ID/`. O relatório informa partidas
-aceitas e rejeitadas, motivos e campos ausentes nas partidas aceitas. A coleta
-atual usa `/publicMatches`, que não informa itens nem o `player_slot` real;
-portanto, `player_items.parquet` fica vazio, e `player_slot` e posição ficam
-nulos. A transformação de detalhes de partida já é testada, mas ainda não há
-coleta de detalhes. O [guia da etapa 6](docs/etapa-6-explicacao.md) explica as
-regras, os arquivos e a validação.
+aceitas e rejeitadas, motivos e campos ausentes nas partidas aceitas. Resumos
+públicos não informam inventário nem o `player_slot` real; apenas essa fonte
+produz itens vazios e slots nulos. O fluxo `--with-details` preserva detalhes
+separadamente e combina suas informações com o resumo antes de normalizar.
+Posição econômica não é inferida; compras só existem quando fornecidas.
+O [guia da etapa 6](docs/etapa-6-explicacao.md) explica essas regras.
 
 ### Catálogo e pipeline (etapa 7)
 
@@ -414,7 +491,9 @@ A coleta é arquivada primeiro; depois, o pipeline relê todas as execuções
 brutas confirmadas, valida os hashes dos payloads e deduplica por `match_id`.
 Ele normaliza uma versão cumulativa, verifica a integridade entre partidas,
 participantes e itens e agrega contagens de auditoria em
-`dataset_counts.parquet`. As métricas de heróis serão implementadas na etapa 8.
+`dataset_counts.parquet`, métricas diárias em `hero_daily_stats.parquet` e
+catálogos por versão em `metadata.json`. As agregações usam dias UTC e são
+validadas contra as entidades antes da promoção.
 
 Para repetir o processamento sem acessar a OpenDota:
 
@@ -433,16 +512,18 @@ O catálogo em `DUCKDB_PATH` contém:
 | Contrato | Conteúdo |
 |---|---|
 | `pipeline_runs` | Etapa, estado, duração, volumes, tentativas, origem e erro de cada execução. |
-| `collection_runs` | Manifestos das coletas brutas confirmadas. |
+| `collection_runs` | Manifestos confirmados das coletas de resumos e detalhes. |
 | `dataset_versions` | Versões publicadas, versões substituídas, versões das transformações e manifestos. |
 | `current_publication` | Identificador da versão atual. |
 | `raw_matches` | Payloads e metadados brutos pertencentes à versão atual. |
 | `matches`, `match_players`, `player_items` | Visões estáveis das entidades da versão atual. |
 | `dataset_counts` | Contagens auditáveis das quatro entidades. |
+| `hero_daily_stats` | Escolhas, vitórias, derrotas, partidas e taxas por herói/dia UTC. |
 
 Os artefatos de cada versão ficam em
 `backend/data/processed/versions/RUN_ID/`: três Parquets de entidades,
-`dataset_counts.parquet`, `quality.json`, `version.json` com esquemas,
+`dataset_counts.parquet`, `hero_daily_stats.parquet`, `quality.json`,
+`metadata.json`, `version.json` com esquemas,
 origens e checksums e `published.json` para recuperação da publicação.
 As visões apontam para arquivos específicos. Coletas posteriores e diretórios
 de preparação não alteram uma versão já publicada.
@@ -477,7 +558,21 @@ quando o processo termina. Esse controle usa `flock` em Linux/macOS.
 Consultas externas podem abrir o catálogo com `duckdb.connect(..., read_only=True)`
 após o término do escritor. O [modo local do DuckDB](https://duckdb.org/docs/current/connect/concurrency.html)
 permite um processo com escrita ou múltiplos processos somente de leitura;
-a integração de leitura pela API ainda pertence à etapa 9.
+a API da etapa 9 implementa essa leitura e converte indisponibilidade em `503`.
+
+### Consultas locais de métricas (etapa 8)
+
+Os comandos usam o mesmo serviço da API e não fazem coleta:
+
+```bash
+uv run python -m app.analytics.queries ranking --include-below-min
+uv run python -m app.analytics.queries ranking --cohort high_skill_public_v1 --period-start 2026-09-18 --period-end 2026-10-02 --include-below-min
+uv run python -m app.analytics.queries detail 86 --period-start 2026-09-18 --period-end 2026-10-02
+uv run python -m app.analytics.queries trend 86 --period-start 2026-09-18 --period-end 2026-10-02
+```
+
+Datas e ID correspondem à amostra validada; adapte-os a outras coletas.
+O [guia da etapa 8](docs/etapa-8-explicacao.md) explica as fórmulas e retornos.
 
 ## Testes e observabilidade
 
@@ -502,7 +597,10 @@ Falhas esperadas são classificadas em três categorias: recuperáveis, de dados
 - [x] Persistência bruta em Parquet implementada (etapa 5).
 - [x] Normalização e relatório de qualidade implementados (etapa 6).
 - [x] Catálogo DuckDB, pipeline local, escritor único e publicação consistente implementados (etapa 7).
-- [ ] Métricas e interface de negócio implementadas (etapas seguintes).
+- [x] Materialização de métricas diárias, filtros e consultas por janela (etapa 8).
+- [x] API versionada de ranking, detalhe e tendência validada offline e com dados reais (etapa 9).
+- [x] Coleta real de resumos, detalhes e catálogos, deduplicação, reprocessamento e reconstrução verificados (etapas 1–9).
+- [ ] Recomendações e dashboard implementados (etapas 10 e 11).
 
 O plano detalhado e a ordem das próximas entregas estão em `metadex-plano-12-etapas.md`.
 

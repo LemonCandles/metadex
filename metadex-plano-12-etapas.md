@@ -220,8 +220,7 @@ Concorrência agressiva ou repetições ilimitadas podem bloquear o acesso e ocu
 
 ## Etapa 5 — Persistir a camada bruta em Parquet
 
-**Estado atual:** implementação concluída em 25 de setembro de 2026; a validação
-com amostra real aguarda acesso à OpenDota neste ambiente.
+**Estado atual:** concluída, incluindo coleta real, deduplicação e releitura com DuckDB/Pandas. Evidências da revisão das etapas 1–9 em [docs/etapas-1-9-validacao.md](docs/etapas-1-9-validacao.md).
 
 ### Objetivo
 
@@ -270,9 +269,7 @@ Descartar campos muito cedo pode impedir a correção de transformações sem um
 
 ## Etapa 6 — Normalizar partidas, jogadores e itens
 
-**Estado atual:** implementação concluída em 25 de setembro de 2026 para os
-payloads disponíveis; a coleta atual arquiva somente `/publicMatches`, por isso
-itens reais dependem de detalhes de partida preservados em uma coleta futura.
+**Estado atual:** concluída, com resumos e detalhes preservados, inventário e compras reais normalizados e relatório de qualidade. Posição econômica desconhecida permanece nula.
 
 ### Objetivo
 
@@ -327,9 +324,7 @@ Inferências silenciosas sobre posição ou itens podem parecer fatos e contamin
 
 ## Etapa 7 — Criar o catálogo DuckDB e orquestrar o pipeline
 
-**Estado atual:** implementação concluída em 28 de setembro de 2026, com
-validação offline de publicação, falhas, reconstrução e bloqueio de escritores.
-Uma amostra real arquivada continua pendente para a validação com dados atuais.
+**Estado atual:** concluída, com publicação, falhas e bloqueio de escritores testados offline; reprocessamento e reconstrução também conferidos com dados reais.
 
 ### Objetivo
 
@@ -377,6 +372,8 @@ Misturar escrita parcial com leitura da API pode apresentar números inconsisten
 ---
 
 ## Etapa 8 — Calcular métricas e tendências de heróis
+
+**Estado atual:** concluída. `hero_daily_stats` materializado e validado, janelas e filtros implementados, consultas locais e API usam o mesmo serviço.
 
 ### Objetivo
 
@@ -427,7 +424,7 @@ Rankear somente por taxa de vitória favorece amostras pequenas e transmite fals
 
 ## Etapa 9 — Publicar o primeiro marco pela FastAPI
 
-Esta etapa conclui o primeiro marco funcional do projeto.
+**Estado atual:** concluída, com ranking, detalhe, tendência, contratos OpenAPI, erros consistentes e CORS local. Consultas conferidas com testes e servidor HTTP real. Evidências em [docs/etapas-1-9-validacao.md](docs/etapas-1-9-validacao.md).
 
 ### Objetivo
 

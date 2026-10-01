@@ -12,6 +12,7 @@ import duckdb
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from app.analytics.hero_daily import HERO_DAILY_SCHEMA, validate_hero_daily_stats
 from app.core.clock import to_utc_iso, utc_now
 from app.core.errors import DataError
 from app.core.paths import DataPaths, ensure_data_directories
@@ -26,7 +27,7 @@ from app.storage.processed import (
 from app.storage.raw import RUN_ID_PATTERN, SCHEMA, list_run_paths
 
 CATALOG_VERSION = 1
-AGGREGATOR_VERSION = 1
+AGGREGATOR_VERSION = 2
 DATASET_COUNTS_SCHEMA = pa.schema([("dataset", pa.string()), ("row_count", pa.int64())])
 ENTITY_SCHEMAS = {
     "raw_matches": SCHEMA,
@@ -34,10 +35,16 @@ ENTITY_SCHEMAS = {
     "match_players": MATCH_PLAYERS_SCHEMA,
     "player_items": PLAYER_ITEMS_SCHEMA,
 }
-VIEW_SCHEMAS = {**ENTITY_SCHEMAS, "dataset_counts": DATASET_COUNTS_SCHEMA}
-SNAPSHOT_FILES = {f"{name}.parquet" for name in VIEW_SCHEMAS if name != "raw_matches"} | {
-    "quality.json"
+VIEW_SCHEMAS = {
+    **ENTITY_SCHEMAS,
+    "dataset_counts": DATASET_COUNTS_SCHEMA,
+    "hero_daily_stats": HERO_DAILY_SCHEMA,
 }
+SNAPSHOT_FILES = {f"{name}.parquet" for name in VIEW_SCHEMAS if name != "raw_matches"} | {
+    "quality.json",
+    "metadata.json",
+}
+LEGACY_SNAPSHOT_FILES = SNAPSHOT_FILES - {"hero_daily_stats.parquet", "metadata.json"}
 
 
 def file_sha256(path: Path) -> str:
@@ -87,6 +94,12 @@ def install_views(
     """Bind explicit file lists, so future or unfinished runs cannot alter a publication."""
     for name, schema in VIEW_SCHEMAS.items():
         select = _select(connection, files.get(name, []), schema)
+        if name == "raw_matches" and files.get(name):
+            select = f"""SELECT * FROM ({select}) QUALIFY row_number() OVER (
+                PARTITION BY match_id ORDER BY
+                    CASE WHEN endpoint LIKE '/matches/%' THEN 0 ELSE 1 END,
+                    collected_at, payload_sha256
+            ) = 1"""
         prefix = "TEMP " if temporary else ""
         clause = "IF NOT EXISTS" if only_missing else "OR REPLACE"
         view = f"candidate_{name}" if temporary else name
@@ -262,16 +275,21 @@ def validate_snapshot(
     if (
         manifest["schema_version"] != CATALOG_VERSION
         or manifest["normalizer_version"] != NORMALIZER_VERSION
-        or manifest["aggregator_version"] != AGGREGATOR_VERSION
+        or manifest["aggregator_version"] not in (1, AGGREGATOR_VERSION)
         or manifest["version_id"] != folder.name
         or not RUN_ID_PATTERN.fullmatch(folder.name)
-        or set(manifest["files"]) != SNAPSHOT_FILES
+        or set(manifest["files"])
+        != (LEGACY_SNAPSHOT_FILES if manifest["aggregator_version"] == 1 else SNAPSHOT_FILES)
     ):
         raise DataError("unsupported or invalid dataset version manifest")
     for filename, checksum in manifest["files"].items():
         if file_sha256(folder / filename) != checksum:
             raise DataError(f"snapshot checksum mismatch: {filename}")
-    files = {name: [folder / f"{name}.parquet"] for name in VIEW_SCHEMAS if name != "raw_matches"}
+    files = {
+        name: [folder / f"{name}.parquet"]
+        for name in VIEW_SCHEMAS
+        if f"{name}.parquet" in manifest["files"]
+    }
     raw_files = []
     for raw in manifest["raw_files"]:
         path = _under(paths.raw, raw["path"])
@@ -280,11 +298,23 @@ def validate_snapshot(
         raw_files.append(path)
     files["raw_matches"] = raw_files
     for name, schema in VIEW_SCHEMAS.items():
-        for path in files[name]:
+        for path in files.get(name, []):
             if not pq.read_schema(path).equals(_parquet_schema(schema)):
                 raise DataError(f"unexpected Parquet schema: {path.name}")
     install_views(connection, files, temporary=True)
     counts = validate_entities(connection)
+    if manifest["aggregator_version"] == AGGREGATOR_VERSION:
+        validate_hero_daily_stats(connection)
+        metadata = json.loads((folder / "metadata.json").read_text(encoding="utf-8"))
+        if metadata.get("summary") != manifest.get("metadata"):
+            raise DataError("metadata summary does not match the snapshot")
+        if metadata["summary"] is not None:
+            summary = metadata["summary"]
+            source = _under(paths.raw, summary["raw_path"])
+            if file_sha256(source) != summary["raw_sha256"]:
+                raise DataError("metadata source checksum mismatch")
+            if json.loads(source.read_text(encoding="utf-8")) != metadata["payloads"]:
+                raise DataError("metadata payload differs from its archived source")
     summary = connection.execute(
         "SELECT dataset, row_count FROM candidate_dataset_counts"
     ).fetchall()

@@ -19,6 +19,7 @@ class CollectionResult:
     message: str
     source_pages: list[dict[str, Any]]
     match_pages: dict[int, int]
+    dataset: str = "public_matches"
 
     def as_dict(self) -> dict[str, Any]:
         return {

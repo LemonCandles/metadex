@@ -15,5 +15,5 @@ Identificadores e nomes de jogadores, chat e demais dados pessoais foram
 removidos. Em `match_detail_parsed.json`, cada `purchase_log` foi limitado às
 cinco primeiras entradas. Nenhum valor preservado foi inventado.
 
-Essas projeções não representam o futuro armazenamento bruto integral. Consulte
-`docs/contracts/raw-opendota.md` para essa distinção.
+Essas projeções não representam o armazenamento bruto integral usado pelo pipeline. Consulte
+o [contrato bruto](../../../../docs/contracts/raw-opendota.md) para essa distinção.

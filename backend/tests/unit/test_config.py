@@ -54,6 +54,14 @@ def test_empty_api_key_is_treated_as_absent(monkeypatch: pytest.MonkeyPatch) -> 
         ("meta_window_days", 0),
         ("meta_window_days", 366),
         ("min_sample_size", 0),
+        ("cors_origins", ["*"]),
+        ("cors_origins", ["http://localhost:3000/path"]),
+        ("cors_origins", ["http://localhost:invalid"]),
+        ("cors_origins", ["http://:3000"]),
+        ("cors_origins", ["https://user:password@example.test"]),
+        ("cors_origins", ["https://example.test?token=value"]),
+        ("cors_origins", ["https://example.test#fragment"]),
+        ("cors_origins", ["ftp://example.test"]),
     ],
 )
 def test_invalid_configuration_is_rejected(field: str, value: object) -> None:
@@ -65,3 +73,8 @@ def test_secret_is_hidden_in_settings_representation() -> None:
     settings = Settings(_env_file=None, opendota_api_key="do-not-print-me")
 
     assert "do-not-print-me" not in repr(settings)
+
+
+def test_cors_environment_normalizes_and_deduplicates_origins(monkeypatch) -> None:
+    monkeypatch.setenv("CORS_ORIGINS", '["http://LOCALHOST:3000/", "http://localhost:3000"]')
+    assert Settings(_env_file=None).cors_origins == ["http://localhost:3000"]

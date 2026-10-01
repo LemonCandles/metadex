@@ -14,7 +14,9 @@ import duckdb
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from app.analytics.hero_daily import write_hero_daily_stats
 from app.analytics.normalize import normalize
+from app.collectors.match_details import collect_match_details
 from app.collectors.opendota import OpenDotaClient
 from app.collectors.public_matches import collect_public_matches
 from app.core.clock import to_utc_iso, utc_now
@@ -38,6 +40,7 @@ from app.storage.catalog import (
     write_json_atomic,
 )
 from app.storage.locking import pipeline_writer_lock
+from app.storage.metadata import load_metadata
 from app.storage.processed import NORMALIZER_VERSION, write_normalized_tables
 from app.storage.raw import list_run_paths, persist_collection, read_run
 
@@ -88,12 +91,27 @@ def _load_inputs(paths: DataPaths) -> tuple[list[str], list[dict[str, Any]], lis
             raise DataError(f"invalid committed raw manifest: {folder.name}")
         source_run_ids.append(folder.name)
         for payload in payloads:
-            matches.setdefault(payload["match_id"], payload)
+            match_id = payload["match_id"]
+            existing = matches.get(match_id)
+            if existing is None:
+                matches[match_id] = payload.copy()
+            elif "players" in payload or "players" in existing:
+                detail, public = (
+                    (payload, existing) if "players" in payload else (existing, payload)
+                )
+                for field in ("start_time", "radiant_win", "game_mode", "lobby_type"):
+                    if field in detail and field in public and detail[field] != public[field]:
+                        raise DataError(f"public match and detail disagree on {field}: {match_id}")
+                combined = {**public, **detail}
+                for field in ("avg_rank_tier", "num_rank_tier", "cluster"):
+                    if combined.get(field) is None and public.get(field) is not None:
+                        combined[field] = public[field]
+                matches[match_id] = combined
     return source_run_ids, list(matches.values()), [p / "matches.parquet" for p in folders]
 
 
 def aggregate_dataset(staging: Path, raw_files: list[Path]) -> dict[str, int]:
-    """Stage 7 aggregates audit counts; hero metrics belong to stage 8."""
+    """Validate entities, then materialize audit counts and daily hero metrics."""
     files = {
         "raw_matches": raw_files,
         **{
@@ -106,8 +124,10 @@ def aggregate_dataset(staging: Path, raw_files: list[Path]) -> dict[str, int]:
         },
     }
     with closing(duckdb.connect()) as connection:
+        connection.execute("SET TimeZone = 'UTC'")
         install_views(connection, files, temporary=True)
         counts = validate_entities(connection)
+        write_hero_daily_stats(connection, staging)
     pq.write_table(
         pa.Table.from_pylist(
             [{"dataset": name, "row_count": count} for name, count in counts.items()],
@@ -125,10 +145,13 @@ async def run_pipeline(
     count: int = 20,
     max_pages: int = 2,
     client: OpenDotaClient | None = None,
+    with_details: bool = False,
 ) -> PipelineResult:
     """Reprocess all committed raw data, optionally preceded by a bounded collection."""
     if not 1 <= count <= 200 or not 1 <= max_pages <= 5:
         raise ValueError("count must be 1..200 and max_pages must be 1..5")
+    if with_details and (not collect or count > 20):
+        raise ValueError("--with-details requires collection of at most 20 matches")
     paths = get_data_paths(settings)
     run = RunRecord(operation="pipeline_run" if collect else "pipeline_reprocess")
     output = PipelineResult(run, PipelineStage.COLLECT if collect else PipelineStage.VALIDATE, [])
@@ -161,27 +184,39 @@ async def run_pipeline(
             try:
                 if collect:
                     stage(PipelineStage.COLLECT)
+
+                    async def collect_and_archive(source: OpenDotaClient):
+                        public = await collect_public_matches(
+                            source, count=count, max_pages=max_pages
+                        )
+                        persist_collection(paths.raw, public, max_pages=max_pages)
+                        batches = [public]
+                        if with_details and public.run.status is RunStatus.SUCCEEDED:
+                            details = await collect_match_details(
+                                source, [match["match_id"] for match in public.matches]
+                            )
+                            persist_collection(paths.raw, details, max_pages=1)
+                            batches.append(details)
+                        return batches
+
                     if client is None:
                         async with OpenDotaClient(settings) as owned_client:
-                            collected = await collect_public_matches(
-                                owned_client,
-                                count=count,
-                                max_pages=max_pages,
-                            )
+                            batches = await collect_and_archive(owned_client)
                     else:
-                        collected = await collect_public_matches(
-                            client, count=count, max_pages=max_pages
-                        )
-                    persist_collection(paths.raw, collected, max_pages=max_pages)
+                        batches = await collect_and_archive(client)
                     sync_collection_runs(connection, paths)
                     run.requested_count = count
-                    run.received_count = collected.run.received_count
-                    run.attempts = collected.run.attempts
-                    run.failures = collected.run.failures
-                    if collected.run.status is not RunStatus.SUCCEEDED:
-                        output.source_run_ids = [collected.run.run_id]
-                        output.message = collected.message
-                        run.finish(collected.run.status)
+                    run.received_count = sum(batch.run.received_count for batch in batches)
+                    run.attempts = sum(batch.run.attempts for batch in batches)
+                    run.failures = sum(batch.run.failures for batch in batches)
+                    incomplete = next(
+                        (batch for batch in batches if batch.run.status is not RunStatus.SUCCEEDED),
+                        None,
+                    )
+                    if incomplete is not None:
+                        output.source_run_ids = [batch.run.run_id for batch in batches]
+                        output.message = incomplete.message
+                        run.finish(incomplete.run.status)
                         record_run(
                             connection,
                             run,
@@ -212,6 +247,8 @@ async def run_pipeline(
                 staging.mkdir()
                 write_normalized_tables(staging, normalized)
                 write_json_atomic(staging / "quality.json", output.quality)
+                metadata = load_metadata(paths.raw)
+                write_json_atomic(staging / "metadata.json", metadata)
                 stage(PipelineStage.AGGREGATE)
                 output.counts = aggregate_dataset(staging, raw_files)
                 manifest = {
@@ -220,6 +257,7 @@ async def run_pipeline(
                     "created_at": to_utc_iso(utc_now()),
                     "normalizer_version": NORMALIZER_VERSION,
                     "aggregator_version": AGGREGATOR_VERSION,
+                    "metadata": metadata["summary"],
                     "source_run_ids": output.source_run_ids,
                     "quality": output.quality,
                     "counts": output.counts,

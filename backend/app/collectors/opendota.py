@@ -1,4 +1,4 @@
-"""Bounded asynchronous access to OpenDota public matches."""
+"""Bounded asynchronous access to OpenDota matches and constants."""
 
 import asyncio
 from collections.abc import Awaitable, Callable
@@ -50,6 +50,15 @@ class MatchPage:
     requested_at: datetime
     status_code: int
     parameters: dict[str, int]
+    endpoint: str = "/publicMatches"
+
+
+@dataclass(frozen=True, slots=True)
+class JsonPayload:
+    payload: Any
+    requested_at: datetime
+    status_code: int
+    endpoint: str
 
 
 def _remaining(headers: httpx.Headers, suffix: str) -> int | None:
@@ -75,6 +84,8 @@ class OpenDotaClient:
         self.sleep = sleep
         self.attempts = 0
         self.failures = 0
+        self.remaining_minute: int | None = None
+        self.remaining_day: int | None = None
         headers = {"Accept": "application/json", "User-Agent": "Metadex/0.1"}
         if settings.opendota_api_key:
             headers["Authorization"] = f"Bearer {settings.opendota_api_key.get_secret_value()}"
@@ -98,20 +109,73 @@ class OpenDotaClient:
         params = {"min_rank": 70}
         if cursor is not None:
             params["less_than_match_id"] = cursor
-        failures = 0
+        before_attempts, before_failures = self.attempts, self.failures
+        result = await self._get("publicMatches", params=params)
+        payload = result.payload
+        if not isinstance(payload, list) or len(payload) > 100:
+            raise DataError("OpenDota publicMatches returned an invalid page")
+        if any(
+            not isinstance(item, dict)
+            or type(item.get("match_id")) is not int
+            or item["match_id"] < 1
+            for item in payload
+        ):
+            raise DataError("OpenDota publicMatches contains an invalid match_id")
+        return MatchPage(
+            payload,
+            self.attempts - before_attempts,
+            self.failures - before_failures,
+            self.remaining_minute,
+            self.remaining_day,
+            result.requested_at,
+            result.status_code,
+            params.copy(),
+        )
+
+    async def match_detail(self, match_id: int) -> MatchPage:
+        if type(match_id) is not int or not 1 <= match_id <= 9_223_372_036_854_775_807:
+            raise ValueError("match_id must be a positive 64-bit integer")
+        before_attempts, before_failures = self.attempts, self.failures
+        result = await self._get(f"matches/{match_id}")
+        payload = result.payload
+        if (
+            not isinstance(payload, dict)
+            or type(payload.get("match_id")) is not int
+            or payload["match_id"] != match_id
+        ):
+            raise DataError("OpenDota match detail has an invalid or mismatched match_id")
+        return MatchPage(
+            [payload],
+            self.attempts - before_attempts,
+            self.failures - before_failures,
+            self.remaining_minute,
+            self.remaining_day,
+            result.requested_at,
+            result.status_code,
+            {},
+            result.endpoint,
+        )
+
+    async def constants(self, name: str) -> JsonPayload:
+        if name not in ("heroes", "items", "game_mode", "lobby_type"):
+            raise ValueError("unsupported constants resource")
+        result = await self._get(f"constants/{name}")
+        if not isinstance(result.payload, dict) or not result.payload:
+            raise DataError("OpenDota constants returned an invalid object")
+        return result
+
+    async def _get(self, endpoint: str, *, params: dict[str, int] | None = None) -> JsonPayload:
         for attempt in range(1, self.policy.max_attempts + 1):
             self.attempts += 1
             requested_at = utc_now()
             try:
-                response = await self._client.get("publicMatches", params=params)
+                response = await self._client.get(endpoint, params=params)
             except httpx.RequestError as exc:
-                failures += 1
                 self.failures += 1
                 if attempt == self.policy.max_attempts:
                     raise RecoverableError("OpenDota network failure after retry limit") from exc
             else:
                 if response.status_code == 429 or 500 <= response.status_code <= 599:
-                    failures += 1
                     self.failures += 1
                     if attempt == self.policy.max_attempts:
                         raise RecoverableError(
@@ -136,25 +200,9 @@ class OpenDotaClient:
                     payload = response.json()
                 except ValueError as exc:
                     raise DataError("OpenDota returned invalid JSON") from exc
-                if not isinstance(payload, list) or len(payload) > 100:
-                    raise DataError("OpenDota publicMatches returned an invalid page")
-                if any(
-                    not isinstance(item, dict)
-                    or type(item.get("match_id")) is not int
-                    or item["match_id"] < 1
-                    for item in payload
-                ):
-                    raise DataError("OpenDota publicMatches contains an invalid match_id")
-                return MatchPage(
-                    payload,
-                    attempt,
-                    failures,
-                    _remaining(response.headers, "minute"),
-                    _remaining(response.headers, "day"),
-                    requested_at,
-                    response.status_code,
-                    params.copy(),
-                )
+                self.remaining_minute = _remaining(response.headers, "minute")
+                self.remaining_day = _remaining(response.headers, "day")
+                return JsonPayload(payload, requested_at, response.status_code, "/" + endpoint)
             delay = min(
                 self.policy.backoff_seconds * 2 ** (attempt - 1),
                 self.policy.max_backoff_seconds,

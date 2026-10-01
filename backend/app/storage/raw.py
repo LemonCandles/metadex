@@ -1,4 +1,4 @@
-"""Atomic, single-writer Parquet archive for public match collection runs."""
+"""Atomic Parquet archives with independent deduplication for summaries and details."""
 
 import hashlib
 import json
@@ -43,10 +43,10 @@ def _json(value: Any) -> str:
 
 def list_run_paths(raw_root: Path) -> list[Path]:
     """List only atomically committed raw runs, never staging directories."""
-    base = raw_root / DATASET
     return sorted(
         path
-        for path in base.glob("collected_date=*/run_*")
+        for dataset in (DATASET, "match_details")
+        for path in (raw_root / dataset).glob("collected_date=*/run_*")
         if path.is_dir() and (path / "manifest.json").is_file()
     )
 
@@ -59,16 +59,18 @@ def list_partitions(raw_root: Path) -> list[str]:
 
 
 def list_runs(raw_root: Path) -> list[dict[str, Any]]:
-    """Return committed manifests in collection-date order."""
+    """Return committed manifests in deterministic path order."""
     return [
         json.loads((path / "manifest.json").read_text(encoding="utf-8"))
         for path in list_run_paths(raw_root)
     ]
 
 
-def _stored_ids(raw_root: Path) -> set[int]:
+def _stored_ids(raw_root: Path, dataset: str) -> set[int]:
     ids: set[int] = set()
     for path in list_run_paths(raw_root):
+        if path.parent.parent.name != dataset:
+            continue
         table = pq.read_table(path / "matches.parquet", columns=["match_id"])
         ids.update(table.column("match_id").to_pylist())
     return ids
@@ -77,7 +79,7 @@ def _stored_ids(raw_root: Path) -> set[int]:
 def persist_collection(
     raw_root: Path, result: CollectionResult, *, max_pages: int
 ) -> dict[str, Any]:
-    """Commit one result atomically; the first committed payload wins per match ID."""
+    """Commit atomically; the first payload wins per dataset and match ID."""
     with writer_lock(raw_root / ".writer.lock"):
         return _persist_collection(raw_root, result, max_pages=max_pages)
 
@@ -89,13 +91,15 @@ def _persist_collection(
         raise ValueError("cannot persist an unfinished collection")
     if not RUN_ID_PATTERN.fullmatch(result.run.run_id):
         raise ValueError("invalid run_id")
+    if result.dataset not in (DATASET, "match_details"):
+        raise ValueError("unsupported raw dataset")
     collected_at = to_utc_iso(result.run.started_at)
     date = result.run.started_at.astimezone(UTC).date().isoformat()
-    partition = raw_root / DATASET / f"collected_date={date}"
+    partition = raw_root / result.dataset / f"collected_date={date}"
     destination = partition / result.run.run_id
     if destination.exists():
         raise FileExistsError(f"run already committed: {result.run.run_id}")
-    seen = _stored_ids(raw_root)
+    seen = _stored_ids(raw_root, result.dataset)
     rows: list[dict[str, Any]] = []
     match_ids: list[int] = []
     for match in result.matches:
@@ -111,7 +115,7 @@ def _persist_collection(
             {
                 "match_id": match_id,
                 "source": "opendota",
-                "endpoint": "/publicMatches",
+                "endpoint": page.get("endpoint", "/publicMatches"),
                 "parameters_json": _json(page["parameters"]),
                 "requested_at": page["requested_at"],
                 "status_code": page["status_code"],
@@ -126,8 +130,13 @@ def _persist_collection(
         "run": result.run.as_log_context(),
         "collector_version": COLLECTOR_VERSION,
         "source": "opendota",
-        "endpoint": "/publicMatches",
-        "parameters": {"min_rank": 70, "count": result.run.requested_count, "max_pages": max_pages},
+        "dataset": result.dataset,
+        "endpoint": "/publicMatches" if result.dataset == DATASET else "/matches/{match_id}",
+        "parameters": (
+            {"min_rank": 70, "count": result.run.requested_count, "max_pages": max_pages}
+            if result.dataset == DATASET
+            else {"count": result.run.requested_count}
+        ),
         "volumes": {
             "received": result.run.received_count,
             "selected": len(match_ids),
@@ -166,6 +175,8 @@ def read_run(raw_root: Path, run_id: str) -> tuple[dict[str, Any], list[dict[str
     wanted = set(manifest["match_ids"])
     payloads: dict[int, dict[str, Any]] = {}
     for path in list_run_paths(raw_root):
+        if path.parent.parent.name != paths[0].parent.parent.name:
+            continue
         for row in pq.read_table(path / "matches.parquet").to_pylist():
             if row["match_id"] in wanted:
                 if (
@@ -173,7 +184,14 @@ def read_run(raw_root: Path, run_id: str) -> tuple[dict[str, Any], list[dict[str
                     != row["payload_sha256"]
                 ):
                     raise ValueError(f"payload hash mismatch: {row['match_id']}")
-                payloads.setdefault(row["match_id"], json.loads(row["payload_json"]))
+                payload = json.loads(row["payload_json"])
+                if (
+                    not isinstance(payload, dict)
+                    or type(payload.get("match_id")) is not int
+                    or payload["match_id"] != row["match_id"]
+                ):
+                    raise ValueError("persisted payload does not match its row match_id")
+                payloads.setdefault(row["match_id"], payload)
     missing = wanted - payloads.keys()
     if missing:
         raise ValueError(f"missing persisted match IDs: {sorted(missing)}")
