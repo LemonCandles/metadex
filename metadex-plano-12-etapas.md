@@ -474,6 +474,8 @@ Acoplar as rotas diretamente aos detalhes do DuckDB dificulta a evolução do ar
 
 ## Etapa 10 — Implementar recomendações explicáveis
 
+**Estado atual:** concluída em 1 de outubro de 2026. Agregações contextuais reproduzíveis, endpoints de heróis/itens, recuo explícito, critérios de ordenação e testes implementados. Posição econômica desconhecida não é inferida; inventário final não sustenta recomendação de compra. Explicação e roteiro de validação em [docs/etapa-10-explicacao.md](docs/etapa-10-explicacao.md).
+
 ### Objetivo
 
 Sugerir heróis e itens com contexto, evidência e limites claros, sem apresentar correlação como causalidade.

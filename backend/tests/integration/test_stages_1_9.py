@@ -252,7 +252,7 @@ async def test_legacy_snapshot_remains_readable_and_can_be_rebuilt(settings, loa
     manifest_path = paths.processed / "versions" / result.version_id / "version.json"
     manifest = json.loads(manifest_path.read_text())
     manifest["aggregator_version"] = 1
-    for name in ("hero_daily_stats.parquet", "metadata.json"):
+    for name in ("hero_daily_stats.parquet", "metadata.json", "recommendation_stats.parquet"):
         del manifest["files"][name]
     manifest.pop("metadata")
     manifest_path.write_text(json.dumps(manifest))

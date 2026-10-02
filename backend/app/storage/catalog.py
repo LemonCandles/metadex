@@ -13,6 +13,10 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from app.analytics.hero_daily import HERO_DAILY_SCHEMA, validate_hero_daily_stats
+from app.analytics.recommendation_stats import (
+    RECOMMENDATION_SCHEMA,
+    validate_recommendation_stats,
+)
 from app.core.clock import to_utc_iso, utc_now
 from app.core.errors import DataError
 from app.core.paths import DataPaths, ensure_data_directories
@@ -27,7 +31,7 @@ from app.storage.processed import (
 from app.storage.raw import RUN_ID_PATTERN, SCHEMA, list_run_paths
 
 CATALOG_VERSION = 1
-AGGREGATOR_VERSION = 2
+AGGREGATOR_VERSION = 3
 DATASET_COUNTS_SCHEMA = pa.schema([("dataset", pa.string()), ("row_count", pa.int64())])
 ENTITY_SCHEMAS = {
     "raw_matches": SCHEMA,
@@ -39,12 +43,15 @@ VIEW_SCHEMAS = {
     **ENTITY_SCHEMAS,
     "dataset_counts": DATASET_COUNTS_SCHEMA,
     "hero_daily_stats": HERO_DAILY_SCHEMA,
+    "recommendation_stats": RECOMMENDATION_SCHEMA,
 }
 SNAPSHOT_FILES = {f"{name}.parquet" for name in VIEW_SCHEMAS if name != "raw_matches"} | {
     "quality.json",
     "metadata.json",
 }
-LEGACY_SNAPSHOT_FILES = SNAPSHOT_FILES - {"hero_daily_stats.parquet", "metadata.json"}
+SNAPSHOT_FILES_V2 = SNAPSHOT_FILES - {"recommendation_stats.parquet"}
+LEGACY_SNAPSHOT_FILES = SNAPSHOT_FILES_V2 - {"hero_daily_stats.parquet", "metadata.json"}
+VERSION_FILES = {1: LEGACY_SNAPSHOT_FILES, 2: SNAPSHOT_FILES_V2, 3: SNAPSHOT_FILES}
 
 
 def file_sha256(path: Path) -> str:
@@ -275,11 +282,10 @@ def validate_snapshot(
     if (
         manifest["schema_version"] != CATALOG_VERSION
         or manifest["normalizer_version"] != NORMALIZER_VERSION
-        or manifest["aggregator_version"] not in (1, AGGREGATOR_VERSION)
+        or manifest["aggregator_version"] not in VERSION_FILES
         or manifest["version_id"] != folder.name
         or not RUN_ID_PATTERN.fullmatch(folder.name)
-        or set(manifest["files"])
-        != (LEGACY_SNAPSHOT_FILES if manifest["aggregator_version"] == 1 else SNAPSHOT_FILES)
+        or set(manifest["files"]) != VERSION_FILES[manifest["aggregator_version"]]
     ):
         raise DataError("unsupported or invalid dataset version manifest")
     for filename, checksum in manifest["files"].items():
@@ -303,7 +309,9 @@ def validate_snapshot(
                 raise DataError(f"unexpected Parquet schema: {path.name}")
     install_views(connection, files, temporary=True)
     counts = validate_entities(connection)
-    if manifest["aggregator_version"] == AGGREGATOR_VERSION:
+    if manifest["aggregator_version"] >= 3:
+        validate_recommendation_stats(connection)
+    if manifest["aggregator_version"] >= 2:
         validate_hero_daily_stats(connection)
         metadata = json.loads((folder / "metadata.json").read_text(encoding="utf-8"))
         if metadata.get("summary") != manifest.get("metadata"):

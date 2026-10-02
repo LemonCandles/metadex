@@ -19,14 +19,16 @@ O projeto não pretende determinar uma estratégia universalmente correta. Seus 
 
 ## Estado do projeto
 
-As etapas 1 a 9 estão implementadas e validadas com testes offline e dados reais.
+As etapas 1 a 10 estão implementadas, com testes offline e dados reais preservados.
 O backend coleta resumos, detalhes e catálogos da OpenDota, preserva a origem,
 normaliza entidades, materializa métricas diárias e publica versões consultadas
 pela API de ranking, detalhe e tendência. Backend e frontend foram instalados
 pelos lockfiles; lint, testes, build e consultas HTTP locais foram verificados.
 O [registro de validação](docs/etapas-1-9-validacao.md) reúne volumes, comandos,
-reprocessamento e reconstrução. Recomendações, dashboard e automação diária
-pertencem às etapas 10, 11 e 12.
+reprocessamento e reconstrução. A etapa 10 acrescenta recomendações explicáveis
+de heróis e primeiras compras de itens, com recuo explícito e amostra mínima.
+O [guia da etapa 10](docs/etapa-10-explicacao.md) acompanha o código e os testes.
+Dashboard e automação diária pertencem às etapas 11 e 12.
 
 ## Escopo do MVP
 
@@ -193,11 +195,11 @@ As transformações devem ser reproduzíveis e cobrir, no mínimo:
 - registro da versão ou data de atualização dos metadados de heróis;
 - testes para as fórmulas das métricas.
 
-## API versionada (etapa 9)
+## API versionada (etapas 9 e 10)
 
 Os endpoints de saúde e métricas estão implementados. A documentação interativa
-fica em `/docs`, e o contrato OpenAPI em `/openapi.json`. Recomendações pertencem
-à etapa 10:
+fica em `/docs`, e o contrato OpenAPI em `/openapi.json`. As recomendações da
+etapa 10 também estão disponíveis:
 
 ```text
 GET /health
@@ -270,6 +272,67 @@ diretórios temporários. A validação real das etapas 1–9 também executou n
 coletas e confirmou as respostas com o servidor HTTP local.
 O [guia para iniciantes](docs/etapa-9-explicacao.md) acompanha a execução entre
 os arquivos e ensina a reproduzir a validação.
+
+### Recomendações explicáveis (etapa 10)
+
+O pipeline materializa `recommendation_stats.parquet` com contagens de vitórias
+e participações em contextos realmente observados: dia, recorte, herói, posição
+conhecida, aliados, adversários e duração. As compras incluem a chave do item,
+o tempo e o índice original de compra. A agregação é recalculada e comparada
+às entidades antes de promover a publicação. O agregador passa à versão 3;
+versões 1 e 2 continuam legíveis para métricas e reconstrução. Para habilitar
+recomendações sobre dados antigos, execute `uv run python -m app.pipeline reprocess`.
+
+Os dois endpoints aceitam os filtros de período e recorte descritos acima,
+`ally_ids` (até quatro IDs distintos), `opponent_ids` (até cinco), `position`
+(1 a 5), `allow_fallback` (padrão `true`) e `limit` (1 a 100, padrão 10).
+Listas usam parâmetros repetidos, como `ally_ids=1&ally_ids=2`; um ID não pode
+estar nos dois lados. O endpoint de itens exige `hero_id`, que também não pode
+aparecer nas listas. Heróis já informados no draft são excluídos do ranking.
+`lane_role` não determina posição econômica: com os dados atuais, solicitar
+posição devolve `unsupported_context` e uma lista vazia.
+
+Todos os IDs do contexto precisam aparecer nos lados indicados. Se nenhum
+candidato atinge `MIN_SAMPLE_SIZE`, o recuo tenta retirar os aliados e depois
+os adversários. Ele conserva período, recorte, posição, herói e filtros de
+itens. `allow_fallback=false` conserva o contexto exato. A resposta distingue
+`requested_context` e `used_context`, informa cada tentativa em `fallback`
+e usa o primeiro nível com evidência suficiente para o ranking inteiro.
+Ordenação: taxa de vitória decrescente, amostra decrescente e identificador
+crescente (`hero_id` ou `item_key`). As contagens são somadas antes da divisão.
+
+O endpoint de itens aceita `duration_min_seconds`, `duration_max_seconds`,
+`purchase_time_min_seconds`, `purchase_time_max_seconds` (padrão 1200),
+`purchase_index_min` e `purchase_index_max`. Limites são inclusivos e o índice
+começa em zero na lista original, incluindo receitas. Só a primeira compra
+cronológica de cada item por participante é contada, com índice como desempate.
+Inventário final, receitas e compras após o fim da partida são excluídos.
+O limite padrão de vinte minutos deixa compras tardias fora do ranking;
+ampliá-lo explicitamente permite inspecioná-las. Tempo e ordem médios descrevem
+as compras observadas; não determinam o momento ideal de comprar.
+
+Cada sugestão informa vitórias, derrotas, `sample_size`, `win_rate`, contexto,
+`context_sample_size`, médias de duração/compra e explicação. `sample` descreve
+o período e recorte, incluindo duração para itens, antes de aplicar o draft.
+`context_sample_size` conta participações de heróis no contexto usado; para
+itens ele conserva o herói. `sample_size` conta participações do candidato ou
+participantes com a primeira compra daquele item. Ausência de log não prova
+ausência de compra. Vantagem anterior e sobrevivência até comprar continuam
+sendo vieses; as respostas incluem essas limitações e não atribuem causalidade.
+
+Sem partidas elegíveis: `no_data`. Sem candidato com amostra suficiente:
+`insufficient_evidence`. Ambos devolvem `200` e `recommendations: []`.
+Sem publicação compatível: `503`; herói de itens nunca observado: `404`.
+
+```bash
+curl 'http://localhost:8000/api/v1/recommendations/heroes?period_start=2026-09-18&period_end=2026-10-02&ally_ids=93'
+curl 'http://localhost:8000/api/v1/recommendations/items?hero_id=93&period_start=2026-09-18&period_end=2026-10-02&purchase_time_max_seconds=1200'
+```
+
+A amostra real local foi reprocessada sem nova coleta. Ela tem onze partidas,
+insuficientes para o mínimo padrão de cem participações por candidato;
+receber uma lista vazia nessas consultas é o comportamento esperado. Casos
+sintéticos verificam sugestões, filtros, recuos, desempates e exclusões.
 
 ## Estrutura inicial do repositório
 

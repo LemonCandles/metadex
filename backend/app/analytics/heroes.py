@@ -93,6 +93,15 @@ def hero_metrics(hero_id: int, picks: int, wins: int, matches: int, minimum: int
     }
 
 
+def resolve_period(start: date | None, end: date | None, window_days: int) -> HeroPeriod:
+    if (start is None) != (end is None):
+        raise ValueError("period_start and period_end must be provided together")
+    if start is not None and end is not None:
+        return HeroPeriod(start, end)
+    today = utc_now().date()
+    return HeroPeriod(today - timedelta(days=window_days), today)
+
+
 class HeroStatsService:
     def __init__(
         self, repository: HeroStatsRepository, *, window_days: int, min_sample_size: int
@@ -102,12 +111,7 @@ class HeroStatsService:
         self.min_sample_size = min_sample_size
 
     def period(self, start: date | None, end: date | None) -> HeroPeriod:
-        if (start is None) != (end is None):
-            raise ValueError("period_start and period_end must be provided together")
-        if start is not None and end is not None:
-            return HeroPeriod(start, end)
-        today = utc_now().date()
-        return HeroPeriod(today - timedelta(days=self.window_days), today)
+        return resolve_period(start, end, self.window_days)
 
     def _window(
         self, data: PublishedHeroData, period: HeroPeriod, filters: HeroFilters

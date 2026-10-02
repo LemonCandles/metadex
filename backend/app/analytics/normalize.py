@@ -207,7 +207,7 @@ def _detail_players(
                     {
                         "match_id": match["match_id"],
                         "player_slot": slot,
-                        "item_id": None,  # No item constants are archived by the current collector.
+                        "item_id": None,  # Preserve purchase keys without a catalog ID lookup.
                         "item_key": key,
                         "source_kind": "purchase_log",
                         "slot": None,

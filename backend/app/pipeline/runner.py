@@ -16,6 +16,7 @@ import pyarrow.parquet as pq
 
 from app.analytics.hero_daily import write_hero_daily_stats
 from app.analytics.normalize import normalize
+from app.analytics.recommendation_stats import write_recommendation_stats
 from app.collectors.match_details import collect_match_details
 from app.collectors.opendota import OpenDotaClient
 from app.collectors.public_matches import collect_public_matches
@@ -128,6 +129,7 @@ def aggregate_dataset(staging: Path, raw_files: list[Path]) -> dict[str, int]:
         install_views(connection, files, temporary=True)
         counts = validate_entities(connection)
         write_hero_daily_stats(connection, staging)
+        write_recommendation_stats(connection, staging)
     pq.write_table(
         pa.Table.from_pylist(
             [{"dataset": name, "row_count": count} for name, count in counts.items()],
