@@ -19,7 +19,7 @@ O projeto não pretende determinar uma estratégia universalmente correta. Seus 
 
 ## Estado do projeto
 
-As etapas 1 a 10 estão implementadas, com testes offline e dados reais preservados.
+As etapas 1 a 11 estão implementadas, com testes offline e dados reais preservados.
 O backend coleta resumos, detalhes e catálogos da OpenDota, preserva a origem,
 normaliza entidades, materializa métricas diárias e publica versões consultadas
 pela API de ranking, detalhe e tendência. Backend e frontend foram instalados
@@ -28,7 +28,9 @@ O [registro de validação](docs/etapas-1-9-validacao.md) reúne volumes, comand
 reprocessamento e reconstrução. A etapa 10 acrescenta recomendações explicáveis
 de heróis e primeiras compras de itens, com recuo explícito e amostra mínima.
 O [guia da etapa 10](docs/etapa-10-explicacao.md) acompanha o código e os testes.
-Dashboard e automação diária pertencem às etapas 11 e 12.
+O dashboard da etapa 11 inclui visão geral, detalhe, tendência e recomendações;
+a validação pode ser reproduzida pelos comandos e fluxos descritos abaixo.
+A automação diária pertence à etapa 12.
 
 ## Escopo do MVP
 
@@ -440,6 +442,13 @@ pnpm dev
 ```
 
 A aplicação ficará disponível em `http://localhost:3000`.
+As telas são `/` (ranking), `/heroes/{hero_id}` (detalhe e tendência) e
+`/recommendations` (heróis e itens). O frontend consulta a API em
+`NEXT_PUBLIC_API_BASE_URL` diretamente do navegador. Inicie o backend e publique
+dados antes de esperar resultados estatísticos: sem publicação, a interface
+mostra o erro `503` da API com opção de tentar novamente. O frontend não dispara
+coleta. IDs de heróis e chaves de itens são exibidos como vêm da API, que ainda
+não expõe nomes localizados.
 
 Para executar as verificações:
 
@@ -447,6 +456,15 @@ Para executar as verificações:
 pnpm lint
 pnpm build
 ```
+
+Para conferir a etapa 11 no navegador, inicie a API e visite `/`,
+`/heroes/{hero_id}` e `/recommendations`. Verifique o ranking com e sem
+amostras pequenas, a tabela diária da tendência e as sugestões de heróis e
+itens. Ajuste período ou habilidade para um recorte vazio e desligue a API
+para conferir o erro e a nova tentativa. Navegue com Tab e Enter em larguras
+mobile e desktop; período, recorte, amostra e publicação devem permanecer
+visíveis. Nesta implementação, ESLint, TypeScript e o build passaram; os
+fluxos preenchidos foram exercitados com respostas sintéticas temporárias.
 
 ## Configuração
 
@@ -663,7 +681,8 @@ Falhas esperadas são classificadas em três categorias: recuperáveis, de dados
 - [x] Materialização de métricas diárias, filtros e consultas por janela (etapa 8).
 - [x] API versionada de ranking, detalhe e tendência validada offline e com dados reais (etapa 9).
 - [x] Coleta real de resumos, detalhes e catálogos, deduplicação, reprocessamento e reconstrução verificados (etapas 1–9).
-- [ ] Recomendações e dashboard implementados (etapas 10 e 11).
+- [x] Recomendações explicáveis implementadas (etapa 10).
+- [x] Dashboard responsivo integrado aos cinco endpoints estatísticos do MVP (etapa 11).
 
 O plano detalhado e a ordem das próximas entregas estão em `metadex-plano-12-etapas.md`.
 
