@@ -4,6 +4,7 @@ import asyncio
 import os
 import shutil
 import uuid
+from collections.abc import Callable
 from contextlib import closing
 from dataclasses import dataclass
 from enum import StrEnum
@@ -148,6 +149,7 @@ async def run_pipeline(
     max_pages: int = 2,
     client: OpenDotaClient | None = None,
     with_details: bool = False,
+    quality_gate: Callable[[dict[str, Any], dict[str, int]], None] | None = None,
 ) -> PipelineResult:
     """Reprocess all committed raw data, optionally preceded by a bounded collection."""
     if not 1 <= count <= 200 or not 1 <= max_pages <= 5:
@@ -253,6 +255,8 @@ async def run_pipeline(
                 write_json_atomic(staging / "metadata.json", metadata)
                 stage(PipelineStage.AGGREGATE)
                 output.counts = aggregate_dataset(staging, raw_files)
+                if quality_gate is not None:
+                    quality_gate(output.quality, output.counts)
                 manifest = {
                     "schema_version": CATALOG_VERSION,
                     "version_id": run.run_id,

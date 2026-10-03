@@ -19,7 +19,7 @@ O projeto não pretende determinar uma estratégia universalmente correta. Seus 
 
 ## Estado do projeto
 
-As etapas 1 a 11 estão implementadas, com testes offline e dados reais preservados.
+As etapas 1 a 12 estão implementadas, com testes offline e dados reais preservados.
 O backend coleta resumos, detalhes e catálogos da OpenDota, preserva a origem,
 normaliza entidades, materializa métricas diárias e publica versões consultadas
 pela API de ranking, detalhe e tendência. Backend e frontend foram instalados
@@ -30,7 +30,11 @@ de heróis e primeiras compras de itens, com recuo explícito e amostra mínima.
 O [guia da etapa 10](docs/etapa-10-explicacao.md) acompanha o código e os testes.
 O dashboard da etapa 11 inclui visão geral, detalhe, tendência e recomendações;
 a validação pode ser reproduzida pelos comandos e fluxos descritos abaixo.
-A automação diária pertence à etapa 12.
+A etapa 12 acrescenta rotina diária com barreira de qualidade, monitoramento,
+backup, retenção, timers locais e integração contínua. O [guia de operação](ops/README.md)
+explica a ativação no host, os alertas e a recuperação.
+O timer deve ser instalado no host que manterá os dados persistentes; a instalação
+não faz parte do checkout de desenvolvimento.
 
 ## Escopo do MVP
 
@@ -683,6 +687,7 @@ Falhas esperadas são classificadas em três categorias: recuperáveis, de dados
 - [x] Coleta real de resumos, detalhes e catálogos, deduplicação, reprocessamento e reconstrução verificados (etapas 1–9).
 - [x] Recomendações explicáveis implementadas (etapa 10).
 - [x] Dashboard responsivo integrado aos cinco endpoints estatísticos do MVP (etapa 11).
+- [x] Rotina diária, monitor de publicação, backup, retenção e CI implementados (etapa 12).
 
 O plano detalhado e a ordem das próximas entregas estão em `metadex-plano-12-etapas.md`.
 
