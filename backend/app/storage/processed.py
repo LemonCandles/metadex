@@ -15,7 +15,7 @@ from app.analytics.normalize import Normalized, normalize
 from app.storage.locking import writer_lock
 from app.storage.raw import DATASET, RUN_ID_PATTERN, read_run
 
-NORMALIZER_VERSION = 1
+NORMALIZER_VERSION = 2
 MATCHES_SCHEMA = pa.schema(
     [
         ("match_id", pa.int64()),

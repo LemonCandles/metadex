@@ -99,5 +99,5 @@ class DuckDBRecommendationRepository:
                     position_supported=known_positions,
                     hero_exists=context.hero_id is None or hero_exists,
                 )
-        except (duckdb.Error, OSError) as exc:
+        except (duckdb.Error, OSError, ValueError, KeyError, TypeError) as exc:
             raise RepositoryUnavailable from exc

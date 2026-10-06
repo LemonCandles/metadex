@@ -42,6 +42,9 @@ jobs:
       - name: Lint
         working-directory: frontend
         run: pnpm lint
+      - name: Test frontend domain behavior
+        working-directory: frontend
+        run: pnpm test
       - name: Production build
         working-directory: frontend
         run: pnpm build

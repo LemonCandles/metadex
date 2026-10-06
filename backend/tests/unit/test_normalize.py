@@ -55,6 +55,26 @@ def test_unparsed_detail_preserves_unknown_purchase_time(load_opendota_fixture):
     assert result.quality["missing_fields"]["lane_role"] == 10
 
 
+def test_jungle_lane_is_preserved_without_inventing_a_support_position(load_opendota_fixture):
+    source = load_opendota_fixture("match_detail_parsed.json")
+    source["players"][0]["lane_role"] = 4
+    result = normalize([source])
+    assert result.quality["accepted_matches"] == 1
+    assert len(result.match_players) == 10
+    assert result.match_players[0]["lane_role"] == 4
+    assert result.match_players[0]["position"] is None
+    assert result.player_items
+
+
+@pytest.mark.parametrize("lane_role", [0, 5, True, "4"])
+def test_invalid_lane_role_is_still_rejected(load_opendota_fixture, lane_role):
+    source = load_opendota_fixture("match_detail_parsed.json")
+    source["players"][0]["lane_role"] = lane_role
+    result = normalize([source])
+    assert result.matches == result.match_players == result.player_items == []
+    assert "lane_role" in result.quality["rejections"][0]["reason"]
+
+
 @pytest.mark.parametrize(
     ("change", "reason"),
     [
@@ -117,3 +137,10 @@ def test_fractional_rank_is_preserved_but_nonfinite_rank_is_rejected(load_opendo
     assert normalize([source]).matches[0]["avg_rank_tier"] == 73.5
     source["avg_rank_tier"] = float("nan")
     assert normalize([source]).quality["rejections"][0]["reason"].startswith("avg_rank_tier")
+
+
+@pytest.mark.parametrize("rank", [-1, 85.1, 100, float("inf"), True])
+def test_rank_outside_the_domain_supported_by_filters_is_rejected(load_opendota_fixture, rank):
+    source = load_opendota_fixture("public_matches_high_skill.json")[1]
+    source["avg_rank_tier"] = rank
+    assert normalize([source]).quality["rejected_matches"] == 1

@@ -10,7 +10,7 @@ export function useResource<T>(path: string | null) {
     if (!path) return;
     const controller = new AbortController();
     getApi<T>(path, controller.signal).then(
-      (data) => setState({ path, loading: false, data, error: null }),
+      (data) => { if (!controller.signal.aborted) setState({ path, loading: false, data, error: null }); },
       (error: unknown) => { if (!controller.signal.aborted) setState({ path, loading: false, data: null, error: error instanceof Error ? error.message : "Falha inesperada." }); },
     );
     return () => controller.abort();

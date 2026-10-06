@@ -1,6 +1,7 @@
 """Publish preserved real responses, then query their metrics through HTTP."""
 
 import hashlib
+import json
 from contextlib import closing
 from copy import deepcopy
 from datetime import UTC, datetime
@@ -223,6 +224,27 @@ async def test_corrupt_catalog_does_not_expose_internal_error(api, meta_settings
     assert response.status_code == 503
     assert "private-key" not in response.text
     assert str(meta_settings.duckdb_path) not in response.text
+
+
+@pytest.mark.parametrize("manifest", [{}, {"aggregator_version": None}])
+async def test_invalid_publication_manifest_returns_503_for_all_statistics(
+    api, published, meta_settings, manifest
+):
+    with closing(duckdb.connect(str(meta_settings.duckdb_path))) as connection:
+        connection.execute(
+            "UPDATE dataset_versions SET manifest_json=? WHERE version_id=?",
+            [json.dumps(manifest), published.version_id],
+        )
+    for route, params in (
+        ("/api/v1/meta/heroes", PERIOD),
+        ("/api/v1/recommendations/heroes", PERIOD),
+        ("/api/v1/recommendations/items", {**PERIOD, "hero_id": 1}),
+    ):
+        response = await api.get(route, params=params)
+        assert response.status_code == 503
+        assert response.json()["error"]["code"] == "data_unavailable"
+        assert str(meta_settings.duckdb_path) not in response.text
+    assert (await api.get("/health")).status_code == 200
 
 
 async def test_sql_daily_grouping_comparison_and_exclusive_end(

@@ -119,5 +119,5 @@ class DuckDBHeroStatsRepository:
                     heroes=tuple(HeroDailyCount(*row) for row in rows),
                     hero_exists=hero_exists,
                 )
-        except (duckdb.Error, OSError) as exc:
+        except (duckdb.Error, OSError, ValueError, KeyError, TypeError) as exc:
             raise RepositoryUnavailable from exc

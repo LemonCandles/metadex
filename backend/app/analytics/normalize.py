@@ -46,8 +46,8 @@ def _optional_rank(source: dict[str, Any], missing: Counter[str]) -> float | Non
     if value is None:
         missing["avg_rank_tier"] += 1
         return None
-    if type(value) not in (int, float) or not isfinite(value) or value < 0:
-        raise InvalidMatch("avg_rank_tier: expected nonnegative finite number")
+    if type(value) not in (int, float) or not isfinite(value) or not 0 <= value <= 85:
+        raise InvalidMatch("avg_rank_tier: expected finite number in 0..85")
     return float(value)
 
 
@@ -151,8 +151,8 @@ def _detail_players(
         if "win" in player and (type(player["win"]) is not int or player["win"] != int(won)):
             raise InvalidMatch("win: conflicts with match result")
         lane_role = _optional_integer(player, "lane_role", missing, minimum=1)
-        if lane_role is not None and lane_role > 3:
-            raise InvalidMatch("lane_role: expected 1..3")
+        if lane_role is not None and lane_role > 4:
+            raise InvalidMatch("lane_role: expected 1..4")
         missing["position"] += 1  # lane_role is a lane estimate, not a position 1..5.
         result.append(
             {

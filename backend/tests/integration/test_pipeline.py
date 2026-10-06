@@ -411,6 +411,29 @@ async def test_another_async_writer_cannot_inherit_parent_lock(settings):
     assert (await run_pipeline(settings)).run.status is RunStatus.FAILED
 
 
+async def test_normalizer_v1_snapshots_remain_rebuildable(settings, load_opendota_fixture):
+    await archive(settings, load_opendota_fixture("public_matches_high_skill.json")[:1])
+    publication = await run_pipeline(settings)
+    paths = get_data_paths(settings)
+    folder = paths.processed / "versions" / publication.version_id
+    manifest_path = folder / "version.json"
+    manifest = json.loads(manifest_path.read_text())
+    assert manifest["normalizer_version"] == 2
+    quality_path = folder / "quality.json"
+    quality = json.loads(quality_path.read_text())
+    quality["normalizer_version"] = 1
+    quality_path.write_text(json.dumps(quality))
+    from app.storage.catalog import file_sha256
+
+    manifest["normalizer_version"] = 1
+    manifest["quality"] = quality
+    manifest["files"]["quality.json"] = file_sha256(quality_path)
+    manifest_path.write_text(json.dumps(manifest))
+    restored = rebuild_catalog(paths)
+    assert restored["version_id"] == publication.version_id
+    assert restored["counts"] == publication.counts
+
+
 async def test_stale_running_record_is_closed_when_next_writer_starts(settings):
     paths = get_data_paths(settings)
     paths.duckdb.parent.mkdir(parents=True)

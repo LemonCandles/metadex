@@ -1,8 +1,10 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.analytics.catalog import HeroCatalogRepository
 from app.analytics.heroes import HeroStatsRepository
 from app.analytics.recommendations import RecommendationRepository
+from app.api.catalog import router as catalog_router
 from app.api.errors import register_error_handlers
 from app.api.examples import preserve_openapi_examples
 from app.api.heroes import router as heroes_router
@@ -10,6 +12,7 @@ from app.api.models import HealthResponse
 from app.api.recommendations import router as recommendations_router
 from app.core.config import Settings, get_settings
 from app.core.logging import configure_logging
+from app.storage.hero_catalog import DuckDBHeroCatalogRepository
 from app.storage.hero_queries import DuckDBHeroStatsRepository
 from app.storage.recommendation_queries import DuckDBRecommendationRepository
 
@@ -19,6 +22,7 @@ def create_app(
     *,
     hero_repository: HeroStatsRepository | None = None,
     recommendation_repository: RecommendationRepository | None = None,
+    hero_catalog_repository: HeroCatalogRepository | None = None,
 ) -> FastAPI:
     """Create the API with validated, replaceable settings."""
     resolved_settings = settings or get_settings()
@@ -33,6 +37,11 @@ def create_app(
         allow_credentials=False,
     )
     application.state.settings = resolved_settings
+    application.state.hero_catalog_repository = (
+        hero_catalog_repository
+        if hero_catalog_repository is not None
+        else DuckDBHeroCatalogRepository(resolved_settings.duckdb_path)
+    )
     application.state.hero_repository = (
         hero_repository
         if hero_repository is not None
@@ -45,6 +54,7 @@ def create_app(
     )
     register_error_handlers(application)
     application.include_router(heroes_router)
+    application.include_router(catalog_router)
     application.include_router(recommendations_router)
     preserve_openapi_examples(application)
 

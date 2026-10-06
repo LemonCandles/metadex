@@ -132,8 +132,9 @@ class RecommendationService:
         limitations = [
             "Associação observada com vitórias; não demonstra causalidade nem prevê a partida.",
             "A amostra coletada não representa todas as partidas da OpenDota.",
-            "Posição econômica não é inferida de lane_role; valores desconhecidos são excluídos "
-            "quando uma posição é solicitada.",
+            "As funções Carry, Mid, Offlane, Soft Support e Hard Support não são deduzidas "
+            "apenas da rota; participantes sem função conhecida são excluídos desse filtro.",
+            "O período não separa patches do Dota 2 e pode misturar versões do jogo.",
         ]
         if kind == "item":
             limitations.extend(
@@ -142,7 +143,7 @@ class RecommendationService:
                     "receitas, inventário final e compras após o fim da partida são excluídos.",
                     "Compras podem refletir vantagem anterior e sobrevivência até a compra. "
                     "Duração, tempo e ordem refinam o recorte, mas não eliminam esse viés.",
-                    "A cobertura de purchase_log pode ser incompleta; ausência de compra "
+                    "O histórico de compras pode ser incompleto; ausência de compra "
                     "registrada não significa que o item nunca foi adquirido.",
                 ]
             )
@@ -192,12 +193,17 @@ class RecommendationService:
         if context.position is not None and not data.position_supported:
             result.update(
                 status="unsupported_context",
-                explanation="A publicação não contém posição econômica conhecida; "
+                explanation="Os dados não informam a função dos jogadores no time; "
                 "o filtro não foi removido e nenhuma sugestão foi produzida.",
             )
             return result
         excluded = set(context.ally_ids) | set(context.opponent_ids)
         for level, used, removed in context_levels(context, allow_fallback):
+            level_label = {
+                "exact": "draft informado",
+                "without_allies": "draft sem filtro de aliados",
+                "without_draft": "sem filtros de aliados e inimigos",
+            }[level]
             context_size = sum(row.sample_size for row in hero_rows if context_matches(row, used))
             totals: dict[int | str, dict[str, Any]] = {}
             for row in data.rows:
@@ -234,7 +240,7 @@ class RecommendationService:
                     "context_sample_size": context_size,
                     "context": asdict(used),
                     "explanation": f"{wins} vitórias em {size} participações observadas "
-                    f"no nível {level}; taxa = {wins}/{size}.",
+                    f"com {level_label}; taxa = {wins}/{size}.",
                     "mean_duration_seconds": counts["duration"] / size,
                     "mean_purchase_time_seconds": counts["time"] / size if kind == "item" else None,
                     "mean_purchase_index": counts["index"] / size if kind == "item" else None,
@@ -263,9 +269,8 @@ class RecommendationService:
                 result["fallback"]["applied"] = bool(removed)
                 result["fallback"]["removed_filters"] = removed
                 result["explanation"] = (
-                    f"Ranking do nível {level}: taxa de vitória decrescente, "
-                    "amostra decrescente e identificador crescente. Todos os candidatos "
-                    "usam o mesmo contexto e atingem a amostra mínima."
+                    f"Sugestões com {level_label}, ordenadas por win rate e quantidade "
+                    "de partidas. Todas usam os mesmos filtros e atingem a amostra mínima."
                 )
                 return result
         # No broadened ranking was used, even if broader contexts were examined.

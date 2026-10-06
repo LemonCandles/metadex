@@ -281,7 +281,7 @@ def validate_snapshot(
     manifest = json.loads((folder / "version.json").read_text(encoding="utf-8"))
     if (
         manifest["schema_version"] != CATALOG_VERSION
-        or manifest["normalizer_version"] != NORMALIZER_VERSION
+        or manifest["normalizer_version"] not in (1, NORMALIZER_VERSION)
         or manifest["aggregator_version"] not in VERSION_FILES
         or manifest["version_id"] != folder.name
         or not RUN_ID_PATTERN.fullmatch(folder.name)

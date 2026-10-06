@@ -461,7 +461,7 @@ button {
   min-width: 140px;
 }
 .toolbar-controls .search-input {
-  width: 95px!important;
+  width: 180px!important;
 }
 .check-label {
   display: flex!important;
@@ -1096,4 +1096,9 @@ tbody tr:last-child th,tbody tr:last-child td {
   .button {
     transition: none;
   }
+}
+
+.filter-grid select:disabled {
+  opacity: .65;
+  cursor: not-allowed;
 }
